@@ -101,6 +101,9 @@
         const myIdLabel = document.getElementById('my-id-label');
         const crosshair = document.getElementById('crosshair');
         const damageOverlay = document.getElementById('damage-overlay');
+        
+        // Audio
+        const shootSound = new Audio('bullet.mp3');
 
         window.onload = () => {
             scanBtn.innerText = "START CAMERA & SCAN VEST";
@@ -214,6 +217,9 @@
             ammo--;
             updateHUD();
             if (navigator.vibrate) navigator.vibrate(50); 
+            
+            shootSound.currentTime = 0;
+            shootSound.play().catch(err => console.log("Audio error:", err));
             
             // Muzzle flash using phone flashlight!
             if (videoTrack) {
