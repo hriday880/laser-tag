@@ -13,16 +13,22 @@
         .hud-text { position: absolute; font-size: 6vw; font-weight: bold; text-shadow: 2px 2px 0 #000; }
         #hp { bottom: 5%; left: 5%; color: #0f0; }
         #ammo { bottom: 5%; right: 5%; color: #ff0; }
+        #my-id-label { top: 5%; left: 5%; color: #fff; font-size: 4vw; opacity: 0.7; }
         #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 10vw; height: 10vw; border: 3px solid #0f0; border-radius: 50%; }
         #crosshair::after { content: '+'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 5vw; color: #0f0; }
         
         #damage-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: red; opacity: 0; z-index: 15; pointer-events: none; transition: opacity 0.1s; }
         #death-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 30; display: none; flex-direction: column; justify-content: center; align-items: center; }
-        #death-screen h1 { color: red; font-size: 10vw; }
+        #death-screen h1 { color: red; font-size: 10vw; margin: 0; }
         
-        #join-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #222; z-index: 40; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; }
+        #setup-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #222; z-index: 40; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; }
+        #scan-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 35; display: none; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+        #scan-overlay h2 { color: #0f0; margin-bottom: 50px; text-shadow: 2px 2px 0 #000; }
+        .scan-box { width: 50vw; height: 50vw; border: 4px dashed #0f0; border-radius: 20px; }
+
         input, select, button { font-size: 5vw; padding: 10px; border-radius: 5px; }
         button { background: #0f0; color: #000; border: none; font-weight: bold; cursor: pointer; }
+        button:disabled { background: #555; color: #888; }
         
         /* The invisible trigger covering the screen */
         #trigger-zone { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 25; }
@@ -34,19 +40,24 @@
     <canvas id="canvas"></canvas>
     <div id="damage-overlay"></div>
     
-    <div id="join-screen">
-        <h2>Laser Tag Web Client</h2>
+    <div id="setup-screen">
+        <h2>Laser Tag Setup</h2>
         <input type="text" id="playerName" placeholder="Player Name" value="Player1">
-        <input type="number" id="markerId" placeholder="Marker ID (0-7)" value="0" min="0" max="7">
         <select id="teamSelect">
             <option value="TEAM_RED">Red Team</option>
             <option value="TEAM_BLUE">Blue Team</option>
         </select>
-        <button id="joinBtn" disabled>Loading OpenCV...</button>
+        <button id="scanBtn" disabled>Loading OpenCV...</button>
+    </div>
+
+    <div id="scan-overlay">
+        <h2>POINT CAMERA AT<br>YOUR VEST MARKER</h2>
+        <div class="scan-box"></div>
     </div>
 
     <div id="hud">
         <div id="crosshair"></div>
+        <div id="my-id-label" class="hud-text">ID: ?</div>
         <div id="hp" class="hud-text">HP: 100</div>
         <div id="ammo" class="hud-text">AMMO: 10</div>
         <div id="trigger-zone"></div>
@@ -65,6 +76,7 @@
         let ammo = MAX_AMMO;
         let hp = 100;
         let isDead = false;
+        let myMarkerId = null;
         let ws;
         
         // OpenCV Mats & Params
@@ -74,20 +86,24 @@
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
-        const joinBtn = document.getElementById('joinBtn');
+        const scanBtn = document.getElementById('scanBtn');
+        const setupScreen = document.getElementById('setup-screen');
+        const scanOverlay = document.getElementById('scan-overlay');
+        const hud = document.getElementById('hud');
         const hpEl = document.getElementById('hp');
         const ammoEl = document.getElementById('ammo');
+        const myIdLabel = document.getElementById('my-id-label');
         const crosshair = document.getElementById('crosshair');
         const damageOverlay = document.getElementById('damage-overlay');
 
         function onOpenCvReady() {
-            joinBtn.innerText = "START CAMERA & JOIN";
-            joinBtn.disabled = false;
+            scanBtn.innerText = "START CAMERA & SCAN VEST";
+            scanBtn.disabled = false;
         }
 
-        joinBtn.onclick = async () => {
-            document.getElementById('join-screen').style.display = 'none';
-            document.getElementById('hud').style.display = 'block';
+        scanBtn.onclick = async () => {
+            setupScreen.style.display = 'none';
+            scanOverlay.style.display = 'flex';
             
             // Start Camera
             try {
@@ -108,14 +124,48 @@
                 dictionary = new cv.Dictionary(cv.DICT_4X4_50);
                 parameters = new cv.DetectorParameters();
                 
-                connectWebSocket();
+                // Begin scanning for our own vest marker
+                requestAnimationFrame(scanForVest);
             } catch (err) {
                 alert("Camera error: " + err.message + "\nMake sure you're using HTTPS or localhost!");
             }
         };
 
+        function scanForVest() {
+            // Draw current video frame
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            srcMat.data.set(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
+            cv.cvtColor(srcMat, grayMat, cv.COLOR_RGBA2GRAY);
+            
+            let corners = new cv.MatVector();
+            let ids = new cv.Mat();
+            let rejected = new cv.MatVector();
+            
+            cv.detectMarkers(grayMat, dictionary, corners, ids, parameters, rejected);
+            
+            if (ids.rows > 0) {
+                // Found a marker! Register it as our own.
+                myMarkerId = ids.data32S[0];
+                corners.delete(); ids.delete(); rejected.delete();
+                
+                if (navigator.vibrate) navigator.vibrate([100, 50, 100]); // Happy buzz
+                
+                scanOverlay.style.display = 'none';
+                myIdLabel.innerText = `ID: ${myMarkerId}`;
+                hud.style.display = 'block';
+                
+                // Now connect to server with our scanned ID
+                connectWebSocket();
+                return; // Stop scanning loop
+            }
+            
+            corners.delete(); ids.delete(); rejected.delete();
+            
+            // Loop until found
+            requestAnimationFrame(scanForVest);
+        }
+
         function connectWebSocket() {
-            // Assume server is running on the same IP, port 8765
             const serverIp = window.location.hostname || "localhost";
             ws = new WebSocket(`ws://${serverIp}:8765`);
             
@@ -123,7 +173,7 @@
                 ws.send(JSON.stringify({
                     type: "JOIN",
                     player_name: document.getElementById('playerName').value,
-                    marker_id: parseInt(document.getElementById('markerId').value),
+                    marker_id: myMarkerId,
                     team: document.getElementById('teamSelect').value
                 }));
             };
@@ -142,7 +192,7 @@
             };
         }
 
-        // The Trigger (Using touchstart/mousedown for Idea 14b capacitive screen tap)
+        // The Trigger (Using touchstart/mousedown for capacitive screen tap)
         document.getElementById('trigger-zone').addEventListener('touchstart', fireWeapon, {passive: false});
         document.getElementById('trigger-zone').addEventListener('mousedown', fireWeapon);
 
@@ -155,12 +205,12 @@
         });
 
         function fireWeapon(e) {
-            e.preventDefault(); // Prevent scrolling/zooming
+            e.preventDefault(); 
             if (isDead || ammo <= 0) return;
             
             ammo--;
             updateHUD();
-            if (navigator.vibrate) navigator.vibrate(50); // Haptic feedback
+            if (navigator.vibrate) navigator.vibrate(50); // Recoil buzz
             
             processCVFrame();
         }
@@ -174,8 +224,6 @@
         function processCVFrame() {
             // Draw current video frame to canvas
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            // Read from canvas into OpenCV Mat
             srcMat.data.set(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
             cv.cvtColor(srcMat, grayMat, cv.COLOR_RGBA2GRAY);
             
@@ -187,16 +235,13 @@
             
             let hitTarget = null;
             if (ids.rows > 0) {
-                // Crosshair is center of screen
                 let centerPoint = new cv.Point(canvas.width / 2, canvas.height / 2);
                 
                 for (let i = 0; i < ids.rows; i++) {
                     let markerCorners = corners.get(i);
-                    // Point Polygon Test in JS
-                    // We need to pass a Mat of points
                     let isInside = cv.pointPolygonTest(markerCorners, centerPoint, false);
                     if (isInside >= 0) {
-                        hitTarget = ids.data32S[i * 4]; // ArUco ID
+                        hitTarget = ids.data32S[i * 4]; 
                         break;
                     }
                     markerCorners.delete();
@@ -204,7 +249,6 @@
             }
             
             if (hitTarget !== null && hitTarget >= 0) {
-                console.log("HIT TARGET:", hitTarget);
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
                         type: "HIT_REPORT",
@@ -221,7 +265,6 @@
             hp = Math.max(0, hp - amount);
             updateHUD();
             
-            // Flash red
             damageOverlay.style.opacity = 0.5;
             setTimeout(() => { damageOverlay.style.opacity = 0; }, 150);
             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
