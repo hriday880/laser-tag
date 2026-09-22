@@ -186,7 +186,28 @@ async def client_handler(websocket):
 
             msg_type = data.get("type")
 
-            if msg_type == "JOIN":
+            if msg_type == "ADMIN_JOIN":
+                players[player_id] = {
+                    "name": "ADMIN",
+                    "team": None,
+                    "hp": 0,
+                    "kills": 0,
+                    "status": "ADMIN",
+                    "marker_id": -1
+                }
+                print("[ADMIN] Dashboard Connected.")
+                await broadcast_state()
+            
+            elif msg_type == "ADMIN_RESET":
+                print("[ADMIN] Resetting game state...")
+                for p in players.values():
+                    if p["status"] != "ADMIN":
+                        p["hp"] = STARTING_HP
+                        p["status"] = "ALIVE"
+                        p["kills"] = 0
+                await broadcast_state()
+
+            elif msg_type == "JOIN":
                 name = data.get("player_name", "Unknown")
                 marker_id = data.get("marker_id")
                 team = data.get("team", "TEAM_RED")
@@ -246,11 +267,12 @@ async def client_handler(websocket):
 
 
 async def main():
+    port = int(os.environ.get("PORT", 8765))
     print("=" * 50)
     print("  LASER TAG SERVER")
-    print("  Listening on ws://0.0.0.0:8765")
+    print(f"  Listening on ws://0.0.0.0:{port}")
     print("=" * 50)
-    async with websockets.serve(client_handler, "0.0.0.0", 8765):
+    async with websockets.serve(client_handler, "0.0.0.0", port):
         await asyncio.Future()  # run forever
 
 

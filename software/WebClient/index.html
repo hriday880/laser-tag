@@ -106,6 +106,16 @@
         // Audio
         const shootSound = new Audio('bullet.mp3');
         const reloadSound = new Audio('reload.mp3');
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const reloadSource = audioCtx.createMediaElementSource(reloadSound);
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = 50.0; // 5000% volume
+        reloadSource.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        
+        // Resume AudioContext on first tap
+        document.body.addEventListener('touchstart', () => { if (audioCtx.state === 'suspended') audioCtx.resume(); }, {once: true});
+        document.body.addEventListener('mousedown', () => { if (audioCtx.state === 'suspended') audioCtx.resume(); }, {once: true});
 
         window.onload = () => {
             scanBtn.innerText = "START CAMERA & SCAN VEST";
@@ -173,7 +183,7 @@
 
         function connectWebSocket() {
             const serverIp = window.location.hostname || "localhost";
-            ws = new WebSocket(`ws://${serverIp}:8765`);
+            ws = new WebSocket(`wss://laser-tag-server.onrender.com`);
             
             ws.onopen = () => {
                 ws.send(JSON.stringify({

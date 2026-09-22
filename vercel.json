@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/", "destination": "/Software/WebClient/index.html" },
+    { "source": "/admin", "destination": "/Software/WebClient/admin.html" },
+    { "source": "/(.*)", "destination": "/Software/WebClient/$1" }
+  ]
+}

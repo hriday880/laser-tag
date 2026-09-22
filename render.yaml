@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: laser-tag-server
+    env: python
+    rootDir: Software/Server
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "true"
