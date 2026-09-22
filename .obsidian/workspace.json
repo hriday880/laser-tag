@@ -1,0 +1,226 @@
+{
+  "main": {
+    "id": "7de1f067321dab6a",
+    "type": "split",
+    "children": [
+      {
+        "id": "c738e031a8132c72",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "45268756ee90a04e",
+            "type": "leaf",
+            "state": {
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Graph view"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "8b51aa99f5370e1c",
+    "type": "split",
+    "children": [
+      {
+        "id": "5cfe8afa1dd6ef4a",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "d4d6884ad32c6f64",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "334d8e4570a6a439",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "059a527205f8fe06",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "7da34460d35ae8f0",
+    "type": "split",
+    "children": [
+      {
+        "id": "bd662e92f9302894",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "13ce0d1d7423c30e",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Obsidian_Brain/Accuracy_Meter.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "250b36c1588803da",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Obsidian_Brain/Accuracy_Meter.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "64a04775379abaf6",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "ffa87f997e6015b9",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "e3597af6e91dcbfd",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Obsidian_Brain/Accuracy_Meter.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "45268756ee90a04e",
+  "lastOpenFiles": [
+    "Obsidian_Brain/1_Feasibility_Analysis.md",
+    "software/Unity_Client/Scripts/ArUcoVision.cs",
+    "software/Unity_Client/Scripts/LaserTagGun.cs",
+    "software/Unity_Client/Scripts/LaserTagNetworkManager.cs",
+    "Obsidian_Brain/Idea1_Cons.md",
+    "software/Unity_Client/Scripts",
+    "software/Unity_Client",
+    "software/Server/test_client.py",
+    "software/Server/requirements.txt",
+    "software/Server/server.py",
+    "software/CV_Test/requirements.txt",
+    "software/CV_Test/cv_test.py",
+    "Obsidian_Brain/SW_Network_Protocol.md",
+    "Obsidian_Brain/SW_Server_Logic.md",
+    "Obsidian_Brain/SW_Computer_Vision.md",
+    "Obsidian_Brain/SW_Client_App.md",
+    "Obsidian_Brain/Software_Master_Node.md",
+    "Obsidian_Brain/Idea14_Concept.md",
+    "Obsidian_Brain/Idea14b_3D_Printed_Core.md",
+    "Obsidian_Brain/Accuracy_Meter.md",
+    "Obsidian_Brain/Home.md",
+    "Obsidian_Brain/3_Hardware_Design.md",
+    "Obsidian_Brain/Idea14c_Haptic_Pro_Upgrade.md",
+    "Obsidian_Brain/Idea2_Concept.md",
+    "Obsidian_Brain/Idea14_Cons.md",
+    "Obsidian_Brain/Idea13_Concept.md",
+    "Obsidian_Brain/Idea13_Cons.md",
+    "Obsidian_Brain/Idea7_Concept.md",
+    "Obsidian_Brain/Idea10_Concept.md",
+    "Obsidian_Brain/Idea2_Budget.md",
+    "Obsidian_Brain/Idea12_Concept.md",
+    "Obsidian_Brain/Idea12_Cons.md",
+    "Obsidian_Brain/Idea11_Cons.md",
+    "Obsidian_Brain/Idea10_Cons.md",
+    "Obsidian_Brain/Idea9_Cons.md",
+    "Obsidian_Brain/Idea9_Concept.md"
+  ]
+}
