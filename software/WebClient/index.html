@@ -6,8 +6,8 @@
     <title>Laser Tag Web Client</title>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: monospace; color: white; user-select: none; }
-        #video, #canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; }
-        #canvas { z-index: 10; pointer-events: none; }
+        #video { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; }
+        #canvas { display: none; } /* Hidden! Only used for background processing */
         
         #hud { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; display: none; }
         .hud-text { position: absolute; font-size: 6vw; font-weight: bold; text-shadow: 2px 2px 0 #000; }
@@ -21,10 +21,12 @@
         #death-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 30; display: none; flex-direction: column; justify-content: center; align-items: center; }
         #death-screen h1 { color: red; font-size: 10vw; margin: 0; }
         
-        #setup-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #222; z-index: 40; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; }
+        #setup-screen, #join-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #222; z-index: 40; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; }
         #scan-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 35; display: none; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
         #scan-overlay h2 { color: #0f0; margin-bottom: 50px; text-shadow: 2px 2px 0 #000; }
         .scan-box { width: 50vw; height: 50vw; border: 4px dashed #0f0; border-radius: 20px; }
+        
+        #join-success { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #0f0; color: #000; font-size: 8vw; font-weight: bold; padding: 20px; border-radius: 10px; z-index: 50; display: none; text-align: center; white-space: nowrap; }
 
         input, select, button { font-size: 5vw; padding: 10px; border-radius: 5px; }
         button { background: #0f0; color: #000; border: none; font-weight: bold; cursor: pointer; }
@@ -54,6 +56,8 @@
         <h2>POINT CAMERA AT<br>YOUR VEST MARKER</h2>
         <div class="scan-box"></div>
     </div>
+    
+    <div id="join-success">REGISTERED!</div>
 
     <div id="hud">
         <div id="crosshair"></div>
@@ -89,6 +93,7 @@
         const scanBtn = document.getElementById('scanBtn');
         const setupScreen = document.getElementById('setup-screen');
         const scanOverlay = document.getElementById('scan-overlay');
+        const joinSuccess = document.getElementById('join-success');
         const hud = document.getElementById('hud');
         const hpEl = document.getElementById('hp');
         const ammoEl = document.getElementById('ammo');
@@ -144,6 +149,12 @@
                 if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
                 
                 scanOverlay.style.display = 'none';
+                
+                // Flash success message
+                joinSuccess.innerText = `REGISTERED ID: ${myMarkerId}`;
+                joinSuccess.style.display = 'block';
+                setTimeout(() => { joinSuccess.style.display = 'none'; }, 2000);
+                
                 myIdLabel.innerText = `ID: ${myMarkerId}`;
                 hud.style.display = 'block';
                 
