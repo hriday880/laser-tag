@@ -46,3 +46,7 @@ ScriptAssemblies/
 
 # Antigravity / Gemini
 .gemini/
+
+# WebClient SSL
+cert.pem
+key.pem
