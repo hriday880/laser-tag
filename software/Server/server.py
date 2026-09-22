@@ -75,11 +75,16 @@ async def handle_hit_report(shooter_id, target_marker_id):
     shooter = players.get(shooter_id)
     if not shooter:
         return
+        
+    print(f"[{shooter['name']}] Fired at Marker {target_marker_id}!")
+    
     if shooter["status"] == "DEAD":
+        print(f"  -> Ignored: {shooter['name']} is DEAD.")
         return  # Dead players can't shoot
 
     # Self-shoot protection: ignore if shooter's own marker
     if shooter["marker_id"] == target_marker_id:
+        print(f"  -> Ignored: Self-shoot protection (aiming at own marker).")
         return
 
     # Find who owns the target marker
@@ -92,13 +97,16 @@ async def handle_hit_report(shooter_id, target_marker_id):
             break
 
     if not victim:
-        return  # No player found with that marker (stale frame / missed)
-    if victim["status"] == "DEAD":
-        return  # Can't kill a dead player
+        print(f"  -> Ignored: No active player is using Marker {target_marker_id}.")
+        return
 
-    # Friendly Fire Check
-    if shooter["team"] == victim["team"]:
-        print(f"[FF] {shooter['name']} tried to shoot teammate {victim['name']}. Ignored.")
+    if victim["status"] == "DEAD":
+        print(f"  -> Ignored: {victim['name']} is already dead.")
+        return
+
+    # Check friendly fire (SOLO team has no friendly fire)
+    if shooter["team"] == victim["team"] and shooter["team"] != "SOLO":
+        print(f"  -> Ignored: Friendly Fire ({victim['name']} is on the same team).")
         return
 
     # Apply Damage
