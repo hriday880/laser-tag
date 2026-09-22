@@ -81,6 +81,7 @@
         let ammo = MAX_AMMO;
         let hp = 100;
         let isDead = false;
+        let isReloading = false;
         let myMarkerId = null;
         let ws;
         
@@ -104,6 +105,7 @@
         
         // Audio
         const shootSound = new Audio('bullet.mp3');
+        const reloadSound = new Audio('reload.mp3');
 
         window.onload = () => {
             scanBtn.innerText = "START CAMERA & SCAN VEST";
@@ -115,7 +117,6 @@
             scanOverlay.style.display = 'flex';
             
             try {
-                // Lower resolution request to save battery/CPU
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }, 
                     audio: false 
@@ -129,14 +130,12 @@
                 video.onloadedmetadata = () => {
                     video.play();
                     
-                    // Downscale internal canvas resolution for blazing fast JS-CV (no freezing)
                     const aspect = video.videoHeight / video.videoWidth;
                     canvas.width = 640;
                     canvas.height = 640 * aspect;
                     
                     detector = new AR.Detector();
                     
-                    // Throttle the scan so we don't freeze the main thread
                     setTimeout(scanForVest, 250);
                 };
             } catch (err) {
@@ -158,7 +157,6 @@
                 
                 scanOverlay.style.display = 'none';
                 
-                // Flash success message
                 joinSuccess.innerText = `REGISTERED ID: ${myMarkerId}`;
                 joinSuccess.style.display = 'block';
                 setTimeout(() => { joinSuccess.style.display = 'none'; }, 2000);
@@ -167,7 +165,7 @@
                 hud.style.display = 'block';
                 
                 connectWebSocket();
-                return; // Stop scanning loop
+                return;
             }
             
             setTimeout(scanForVest, 250);
@@ -212,7 +210,13 @@
 
         function fireWeapon(e) {
             e.preventDefault(); 
-            if (isDead || ammo <= 0) return;
+            if (isDead || isReloading) return;
+            
+            if (ammo <= 0) {
+                // Auto reload if empty and trying to shoot
+                reload();
+                return;
+            }
             
             ammo--;
             updateHUD();
@@ -221,16 +225,14 @@
             shootSound.currentTime = 0;
             shootSound.play().catch(err => console.log("Audio error:", err));
             
-            // Muzzle flash using phone flashlight!
             if (videoTrack) {
                 videoTrack.applyConstraints({ advanced: [{ torch: true }] })
                     .then(() => {
                         setTimeout(() => {
                             videoTrack.applyConstraints({ advanced: [{ torch: false }] }).catch(()=>{});
-                        }, 100); // 100ms flash
+                        }, 100);
                     })
                     .catch((err) => {
-                        // Torch not supported on this device/browser
                         console.log("Torch error:", err);
                     });
             }
@@ -239,9 +241,22 @@
         }
         
         function reload() {
-            if (isDead) return;
-            ammo = MAX_AMMO;
-            updateHUD();
+            if (isDead || isReloading || ammo === MAX_AMMO) return;
+            
+            isReloading = true;
+            ammoEl.innerText = "RELOADING...";
+            ammoEl.style.color = "yellow";
+            
+            reloadSound.currentTime = 0;
+            reloadSound.play().catch(err => console.log("Reload audio error:", err));
+            
+            setTimeout(() => {
+                if (isDead) return;
+                ammo = MAX_AMMO;
+                isReloading = false;
+                ammoEl.style.color = "white";
+                updateHUD();
+            }, 4000); // 4 seconds reload time
         }
 
         // Point-in-polygon algorithm for JS-Aruco corners
