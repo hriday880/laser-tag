@@ -68,7 +68,8 @@
         <p id="respawn-timer">Respawning...</p>
     </div>
 
-    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();"></script>
+    <script src="cv.js"></script>
+    <script src="aruco.js"></script>
     
     <script>
         // Game State
@@ -79,9 +80,8 @@
         let myMarkerId = null;
         let ws;
         
-        // OpenCV Mats & Params
-        let srcMat, grayMat;
-        let dictionary, parameters;
+        // JS-Aruco Detector
+        let detector;
 
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
@@ -96,10 +96,10 @@
         const crosshair = document.getElementById('crosshair');
         const damageOverlay = document.getElementById('damage-overlay');
 
-        function onOpenCvReady() {
+        window.onload = () => {
             scanBtn.innerText = "START CAMERA & SCAN VEST";
             scanBtn.disabled = false;
-        }
+        };
 
         scanBtn.onclick = async () => {
             setupScreen.style.display = 'none';
@@ -112,41 +112,29 @@
                     audio: false 
                 });
                 video.srcObject = stream;
-                await video.play();
                 
-                // Init canvas sizes
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                
-                // Init OpenCV objects
-                srcMat = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-                grayMat = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC1);
-                dictionary = new cv.Dictionary(cv.DICT_4X4_50);
-                parameters = new cv.DetectorParameters();
-                
-                // Begin scanning for our own vest marker
-                requestAnimationFrame(scanForVest);
+                video.onloadedmetadata = () => {
+                    video.play();
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    detector = new AR.Detector();
+                    // Begin scanning for our own vest marker
+                    requestAnimationFrame(scanForVest);
+                };
             } catch (err) {
                 alert("Camera error: " + err.message + "\nMake sure you're using HTTPS or localhost!");
             }
         };
 
         function scanForVest() {
-            // Draw current video frame
+            if (canvas.width === 0) { requestAnimationFrame(scanForVest); return; }
+            
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            srcMat.data.set(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
-            cv.cvtColor(srcMat, grayMat, cv.COLOR_RGBA2GRAY);
+            let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            let markers = detector.detect(imageData);
             
-            let corners = new cv.MatVector();
-            let ids = new cv.Mat();
-            let rejected = new cv.MatVector();
-            
-            cv.detectMarkers(grayMat, dictionary, corners, ids, parameters, rejected);
-            
-            if (ids.rows > 0) {
-                // Found a marker! Register it as our own.
-                myMarkerId = ids.data32S[0];
-                corners.delete(); ids.delete(); rejected.delete();
+            if (markers.length > 0) {
+                myMarkerId = markers[0].id;
                 
                 if (navigator.vibrate) navigator.vibrate([100, 50, 100]); // Happy buzz
                 
@@ -154,14 +142,10 @@
                 myIdLabel.innerText = `ID: ${myMarkerId}`;
                 hud.style.display = 'block';
                 
-                // Now connect to server with our scanned ID
                 connectWebSocket();
                 return; // Stop scanning loop
             }
             
-            corners.delete(); ids.delete(); rejected.delete();
-            
-            // Loop until found
             requestAnimationFrame(scanForVest);
         }
 
@@ -192,11 +176,9 @@
             };
         }
 
-        // The Trigger (Using touchstart/mousedown for capacitive screen tap)
         document.getElementById('trigger-zone').addEventListener('touchstart', fireWeapon, {passive: false});
         document.getElementById('trigger-zone').addEventListener('mousedown', fireWeapon);
 
-        // Double tap to reload
         let lastTap = 0;
         document.getElementById('trigger-zone').addEventListener('touchend', (e) => {
             const currentTime = new Date().getTime();
@@ -210,7 +192,7 @@
             
             ammo--;
             updateHUD();
-            if (navigator.vibrate) navigator.vibrate(50); // Recoil buzz
+            if (navigator.vibrate) navigator.vibrate(50); 
             
             processCVFrame();
         }
@@ -221,30 +203,34 @@
             updateHUD();
         }
 
+        // Point-in-polygon algorithm for JS-Aruco corners
+        function isPointInPoly(pt, poly) {
+            let inside = false;
+            for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                let xi = poly[i].x, yi = poly[i].y;
+                let xj = poly[j].x, yj = poly[j].y;
+                let intersect = ((yi > pt.y) != (yj > pt.y)) && (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi);
+                if (intersect) inside = !inside;
+            }
+            return inside;
+        }
+
         function processCVFrame() {
-            // Draw current video frame to canvas
+            if (canvas.width === 0) return;
+            
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            srcMat.data.set(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
-            cv.cvtColor(srcMat, grayMat, cv.COLOR_RGBA2GRAY);
-            
-            let corners = new cv.MatVector();
-            let ids = new cv.Mat();
-            let rejected = new cv.MatVector();
-            
-            cv.detectMarkers(grayMat, dictionary, corners, ids, parameters, rejected);
+            let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            let markers = detector.detect(imageData);
             
             let hitTarget = null;
-            if (ids.rows > 0) {
-                let centerPoint = new cv.Point(canvas.width / 2, canvas.height / 2);
+            if (markers.length > 0) {
+                let centerPoint = { x: canvas.width / 2, y: canvas.height / 2 };
                 
-                for (let i = 0; i < ids.rows; i++) {
-                    let markerCorners = corners.get(i);
-                    let isInside = cv.pointPolygonTest(markerCorners, centerPoint, false);
-                    if (isInside >= 0) {
-                        hitTarget = ids.data32S[i * 4]; 
+                for (let i = 0; i < markers.length; i++) {
+                    if (isPointInPoly(centerPoint, markers[i].corners)) {
+                        hitTarget = markers[i].id;
                         break;
                     }
-                    markerCorners.delete();
                 }
             }
             
@@ -257,8 +243,6 @@
                     }));
                 }
             }
-            
-            corners.delete(); ids.delete(); rejected.delete();
         }
 
         function takeDamage(amount, fatal) {
