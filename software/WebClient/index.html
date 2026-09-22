@@ -86,6 +86,7 @@
         
         // JS-Aruco Detector
         let detector;
+        let videoTrack = null;
 
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
@@ -117,6 +118,10 @@
                     audio: false 
                 });
                 video.srcObject = stream;
+                
+                if (stream.getVideoTracks().length > 0) {
+                    videoTrack = stream.getVideoTracks()[0];
+                }
                 
                 video.onloadedmetadata = () => {
                     video.play();
@@ -209,6 +214,20 @@
             ammo--;
             updateHUD();
             if (navigator.vibrate) navigator.vibrate(50); 
+            
+            // Muzzle flash using phone flashlight!
+            if (videoTrack) {
+                videoTrack.applyConstraints({ advanced: [{ torch: true }] })
+                    .then(() => {
+                        setTimeout(() => {
+                            videoTrack.applyConstraints({ advanced: [{ torch: false }] }).catch(()=>{});
+                        }, 100); // 100ms flash
+                    })
+                    .catch((err) => {
+                        // Torch not supported on this device/browser
+                        console.log("Torch error:", err);
+                    });
+            }
             
             processCVFrame();
         }
