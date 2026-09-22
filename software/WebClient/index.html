@@ -85,7 +85,7 @@
 
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
         const scanBtn = document.getElementById('scanBtn');
         const setupScreen = document.getElementById('setup-screen');
         const scanOverlay = document.getElementById('scan-overlay');
@@ -105,21 +105,26 @@
             setupScreen.style.display = 'none';
             scanOverlay.style.display = 'flex';
             
-            // Start Camera
             try {
+                // Lower resolution request to save battery/CPU
                 const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, 
+                    video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }, 
                     audio: false 
                 });
                 video.srcObject = stream;
                 
                 video.onloadedmetadata = () => {
                     video.play();
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
+                    
+                    // Downscale internal canvas resolution for blazing fast JS-CV (no freezing)
+                    const aspect = video.videoHeight / video.videoWidth;
+                    canvas.width = 640;
+                    canvas.height = 640 * aspect;
+                    
                     detector = new AR.Detector();
-                    // Begin scanning for our own vest marker
-                    requestAnimationFrame(scanForVest);
+                    
+                    // Throttle the scan so we don't freeze the main thread
+                    setTimeout(scanForVest, 250);
                 };
             } catch (err) {
                 alert("Camera error: " + err.message + "\nMake sure you're using HTTPS or localhost!");
@@ -127,7 +132,7 @@
         };
 
         function scanForVest() {
-            if (canvas.width === 0) { requestAnimationFrame(scanForVest); return; }
+            if (canvas.width === 0) { setTimeout(scanForVest, 250); return; }
             
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -136,7 +141,7 @@
             if (markers.length > 0) {
                 myMarkerId = markers[0].id;
                 
-                if (navigator.vibrate) navigator.vibrate([100, 50, 100]); // Happy buzz
+                if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
                 
                 scanOverlay.style.display = 'none';
                 myIdLabel.innerText = `ID: ${myMarkerId}`;
@@ -146,7 +151,7 @@
                 return; // Stop scanning loop
             }
             
-            requestAnimationFrame(scanForVest);
+            setTimeout(scanForVest, 250);
         }
 
         function connectWebSocket() {
