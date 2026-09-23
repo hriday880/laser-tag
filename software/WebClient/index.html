@@ -216,7 +216,19 @@
             
             ws.onmessage = (e) => {
                 const msg = JSON.parse(e.data);
-                if (msg.type === "DAMAGE_RECEIVED") {
+                if (msg.type === "ERROR") {
+                    alert("SERVER ERROR: " + msg.message + "\n\nPlease pick a different vest or team.");
+                    // Kick back to setup screen
+                    hud.style.display = 'none';
+                    setupScreen.style.display = 'flex';
+                    if (videoTrack) {
+                        videoTrack.stop(); // Stop camera
+                    }
+                    ws.close();
+                } else if (msg.type === "JOIN_ACK") {
+                    console.log("Successfully joined server!");
+                    // We could set myPlayerId here if needed
+                } else if (msg.type === "DAMAGE_RECEIVED") {
                     takeDamage(msg.amount, msg.is_fatal);
                 } else if (msg.type === "HIT_CONFIRMED") {
                     flashHitmarker();
