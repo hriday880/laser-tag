@@ -18,11 +18,15 @@
         th { background: #333; color: #0f0; }
         .DEAD { color: red; font-weight: bold; }
         .ALIVE { color: #0f0; font-weight: bold; }
+        #conn-badge { display: inline-block; padding: 4px 12px; border-radius: 4px; font-size: 14px; margin-left: 15px; }
+        .badge-ok { background: #0f0; color: #000; }
+        .badge-wait { background: yellow; color: #000; }
+        .badge-dead { background: red; color: white; }
     </style>
 </head>
 <body>
 
-    <h1>🚨 D-DAY ADMIN DASHBOARD 🚨</h1>
+    <h1>🚨 D-DAY ADMIN DASHBOARD 🚨 <span id="conn-badge" class="badge-wait">Connecting...</span></h1>
 
     <div class="panel">
         <h2 style="margin-top:0; color:#0f0;">Game Settings</h2>
@@ -56,71 +60,111 @@
             </tr>
         </thead>
         <tbody id="playerTable">
-            <tr><td colspan="6">Connecting to server...</td></tr>
+            <tr><td colspan="6">Waiting for connection...</td></tr>
         </tbody>
     </table>
 
     <script>
-        const ws = new WebSocket(`wss://laser-tag-laser-tag-server.onrender.com`);
-        const tableBody = document.getElementById("playerTable");
+        var SERVER_URL = 'wss://laser-tag-laser-tag-server.onrender.com';
+        var ws = null;
+        var reconnectDelay = 1000;
+        var reconnectTimer = null;
+        var badge = document.getElementById('conn-badge');
+        var tableBody = document.getElementById('playerTable');
 
-        ws.onopen = () => {
-            ws.send(JSON.stringify({ type: "ADMIN_JOIN" }));
-        };
+        function connect() {
+            if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === "STATE_SYNC") {
-                updateTable(data.players);
-                if (data.settings) {
-                    document.getElementById("maxPlayers").value = data.settings.max_players;
-                    document.getElementById("maxTeams").value = data.settings.max_teams;
-                    document.getElementById("maxPerTeam").value = data.settings.max_per_team;
+            badge.className = 'badge-wait';
+            badge.innerText = '⏳ Connecting...';
+
+            try { ws = new WebSocket(SERVER_URL); } catch(e) { scheduleReconnect(); return; }
+
+            ws.onopen = function() {
+                badge.className = 'badge-ok';
+                badge.innerText = '🟢 Online';
+                reconnectDelay = 1000;
+                ws.send(JSON.stringify({ type: "ADMIN_JOIN" }));
+            };
+
+            ws.onmessage = function(event) {
+                var data;
+                try { data = JSON.parse(event.data); } catch(e) { return; }
+
+                if (data.type === "STATE_SYNC") {
+                    updateTable(data.players);
+                    if (data.settings) {
+                        document.getElementById('maxPlayers').value = data.settings.max_players;
+                        document.getElementById('maxTeams').value = data.settings.max_teams;
+                        document.getElementById('maxPerTeam').value = data.settings.max_per_team;
+                    }
                 }
-            }
-        };
+            };
+
+            ws.onerror = function() {};
+
+            ws.onclose = function() {
+                badge.className = 'badge-dead';
+                badge.innerText = '🔴 Disconnected';
+                scheduleReconnect();
+            };
+        }
+
+        function scheduleReconnect() {
+            if (reconnectTimer) return;
+            badge.innerText = '🔄 Reconnecting...';
+            reconnectTimer = setTimeout(function() {
+                reconnectTimer = null;
+                connect();
+            }, reconnectDelay);
+            reconnectDelay = Math.min(reconnectDelay * 2, 10000);
+        }
 
         function resetGame() {
-            if (confirm("Are you sure you want to revive everyone and reset kills to 0?")) {
-                ws.send(JSON.stringify({ type: "ADMIN_RESET" }));
+            if (confirm("Reset all players HP and kills to start a new match?")) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: "ADMIN_RESET" }));
+                } else {
+                    alert("Not connected to server!");
+                }
             }
         }
 
         function updateSettings() {
-            const mp = document.getElementById("maxPlayers").value;
-            const mt = document.getElementById("maxTeams").value;
-            const mpt = document.getElementById("maxPerTeam").value;
-            
-            ws.send(JSON.stringify({
-                type: "ADMIN_UPDATE_SETTINGS",
-                settings: {
-                    max_players: parseInt(mp),
-                    max_teams: parseInt(mt),
-                    max_per_team: parseInt(mpt)
-                }
-            }));
-            alert("Settings Applied!");
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: "ADMIN_UPDATE_SETTINGS",
+                    settings: {
+                        max_players: parseInt(document.getElementById('maxPlayers').value),
+                        max_teams: parseInt(document.getElementById('maxTeams').value),
+                        max_per_team: parseInt(document.getElementById('maxPerTeam').value)
+                    }
+                }));
+                alert("Settings Applied!");
+            } else {
+                alert("Not connected to server!");
+            }
         }
 
         function updateTable(players) {
             tableBody.innerHTML = "";
-            let count = 0;
+            var count = 0;
             
-            const sortedPlayers = Object.values(players)
-                .filter(p => p.status !== "ADMIN")
-                .sort((a, b) => b.kills - a.kills);
+            var sorted = Object.values(players)
+                .filter(function(p) { return p.status !== "ADMIN"; })
+                .sort(function(a, b) { return (b.kills || 0) - (a.kills || 0); });
 
-            for (const p of sortedPlayers) {
+            for (var i = 0; i < sorted.length; i++) {
+                var p = sorted[i];
                 count++;
-                const tr = document.createElement("tr");
-                tr.innerHTML = `
-                    <td>${p.name}</td>
-                    <td>${p.marker_id}</td>
-                    <td>${p.team || "SOLO"}</td>
-                    <td>${p.hp}</td>
-                    <td>${p.kills}</td>
-                    <td class="${p.status}">${p.status}</td>
-                `;
+                var tr = document.createElement("tr");
+                tr.innerHTML = 
+                    '<td>' + p.name + '</td>' +
+                    '<td>' + p.marker_id + '</td>' +
+                    '<td>' + (p.team || "SOLO") + '</td>' +
+                    '<td>' + p.hp + '</td>' +
+                    '<td>' + (p.kills || 0) + '</td>' +
+                    '<td class="' + p.status + '">' + p.status + '</td>';
                 tableBody.appendChild(tr);
             }
 
@@ -128,6 +172,9 @@
                 tableBody.innerHTML = '<tr><td colspan="6">No players connected yet.</td></tr>';
             }
         }
+
+        // Start connection on page load
+        connect();
     </script>
 </body>
 </html>

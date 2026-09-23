@@ -34,7 +34,8 @@ async def broadcast_state():
             "team": p["team"],
             "hp": p["hp"],
             "marker_id": p["marker_id"],
-            "status": p["status"]
+            "status": p["status"],
+            "kills": p.get("kills", 0)
         }
 
     # Build team scores

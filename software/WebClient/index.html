@@ -7,7 +7,7 @@
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: monospace; color: white; user-select: none; }
         #video { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; }
-        #canvas { display: none; } /* Hidden! Only used for background processing */
+        #canvas { display: none; }
         
         #hud { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; display: none; }
         .hud-text { position: absolute; font-size: 6vw; font-weight: bold; text-shadow: 2px 2px 0 #000; }
@@ -21,7 +21,7 @@
         #death-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 30; display: none; flex-direction: column; justify-content: center; align-items: center; }
         #death-screen h1 { color: red; font-size: 10vw; margin: 0; }
         
-        #setup-screen, #join-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #222; z-index: 40; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; }
+        #setup-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #222; z-index: 40; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; }
         #scan-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 35; display: none; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
         #scan-overlay h2 { color: #0f0; margin-bottom: 50px; text-shadow: 2px 2px 0 #000; }
         .scan-box { width: 50vw; height: 50vw; border: 4px dashed #0f0; border-radius: 20px; }
@@ -29,11 +29,15 @@
         #join-success { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #0f0; color: #000; font-size: 8vw; font-weight: bold; padding: 20px; border-radius: 10px; z-index: 50; display: none; text-align: center; white-space: nowrap; }
         #muzzle-flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 15; opacity: 0; pointer-events: none; transition: opacity 0.05s; display: none; }
 
+        #conn-status { position: absolute; top: 2%; right: 2%; z-index: 45; font-size: 3vw; padding: 4px 8px; border-radius: 4px; background: rgba(0,0,0,0.6); }
+        .conn-ok { color: #0f0; }
+        .conn-wait { color: yellow; }
+        .conn-dead { color: red; }
+
         input, select, button { font-size: 5vw; padding: 10px; border-radius: 5px; }
         button { background: #0f0; color: #000; border: none; font-weight: bold; cursor: pointer; }
         button:disabled { background: #555; color: #888; }
         
-        /* The invisible trigger covering the screen */
         #trigger-zone { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 25; pointer-events: auto; }
     </style>
 </head>
@@ -43,6 +47,8 @@
     <canvas id="canvas"></canvas>
     <div id="damage-overlay"></div>
     
+    <div id="conn-status" class="conn-wait">⏳ Connecting...</div>
+
     <div id="setup-screen">
         <h1 style="color: #0f0;">LASER TAG</h1>
         <input type="text" id="playerName" placeholder="Enter your name" value="Player1">
@@ -79,83 +85,138 @@
     <script src="aruco.js"></script>
     
     <script>
-        // Game State
-        const MAX_AMMO = 10;
-        let ammo = MAX_AMMO;
-        let hp = 100;
-        let isDead = false;
-        let isReloading = false;
-        let myMarkerId = null;
-        let ws;
-        
-        // JS-Aruco Detector
-        let detector;
-        let videoTrack = null;
+        // ─── Constants ───
+        var SERVER_URL = 'wss://laser-tag-laser-tag-server.onrender.com';
+        var MAX_AMMO = 10;
+        var RECONNECT_BASE_MS = 1000;
+        var RECONNECT_MAX_MS = 10000;
 
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        const scanBtn = document.getElementById('scanBtn');
-        const setupScreen = document.getElementById('setup-screen');
-        const scanOverlay = document.getElementById('scan-overlay');
-        const joinSuccess = document.getElementById('join-success');
-        const hud = document.getElementById('hud');
-        const hpEl = document.getElementById('hp');
-        const ammoEl = document.getElementById('ammo');
-        const myIdLabel = document.getElementById('my-id-label');
-        const crosshair = document.getElementById('crosshair');
-        const damageOverlay = document.getElementById('damage-overlay');
+        // ─── Game State ───
+        var ammo = MAX_AMMO;
+        var hp = 100;
+        var isDead = false;
+        var isReloading = false;
+        var myMarkerId = null;
+        var hasJoined = false;
+        var lastFireTime = 0;
+        var lastTap = 0;
         
-        // Audio
-        const shootSound = new Audio('bullet.mp3');
-        const reloadSound = new Audio('reload.mp3');
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const reloadSource = audioCtx.createMediaElementSource(reloadSound);
-        const gainNode = audioCtx.createGain();
-        gainNode.gain.value = 50.0; // 5000% volume
-        reloadSource.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
+        // ─── WebSocket State ───
+        var ws = null;
+        var reconnectDelay = RECONNECT_BASE_MS;
+        var reconnectTimer = null;
+        var intentionalClose = false;
         
-        // Resume AudioContext on first tap
-        document.body.addEventListener('touchstart', () => { if (audioCtx.state === 'suspended') audioCtx.resume(); }, {once: true});
-        document.body.addEventListener('mousedown', () => { if (audioCtx.state === 'suspended') audioCtx.resume(); }, {once: true});
+        // ─── JS-Aruco ───
+        var detector = null;
+        var videoTrack = null;
 
-        let ws = null;
-        let hasJoined = false;
+        // ─── DOM refs ───
+        var video = document.getElementById('video');
+        var canvas = document.getElementById('canvas');
+        var ctx = canvas.getContext('2d', { willReadFrequently: true });
+        var scanBtn = document.getElementById('scanBtn');
+        var setupScreen = document.getElementById('setup-screen');
+        var scanOverlay = document.getElementById('scan-overlay');
+        var joinSuccess = document.getElementById('join-success');
+        var hud = document.getElementById('hud');
+        var hpEl = document.getElementById('hp');
+        var ammoEl = document.getElementById('ammo');
+        var myIdLabel = document.getElementById('my-id-label');
+        var crosshair = document.getElementById('crosshair');
+        var damageOverlay = document.getElementById('damage-overlay');
+        var connStatus = document.getElementById('conn-status');
+        
+        // ─── Audio ───
+        var shootSound = new Audio('bullet.mp3');
+        var reloadSound = new Audio('reload.mp3');
+        var audioCtx = null;
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            var reloadSource = audioCtx.createMediaElementSource(reloadSound);
+            var gainNode = audioCtx.createGain();
+            gainNode.gain.value = 50.0; // 5000% volume
+            reloadSource.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+        } catch(e) {
+            console.log("Web Audio API not supported, using normal volume");
+        }
+        
+        // Resume AudioContext on first tap (mobile requirement)
+        document.body.addEventListener('touchstart', function() { 
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); 
+        }, {once: true});
+        document.body.addEventListener('mousedown', function() { 
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); 
+        }, {once: true});
 
-        window.onload = () => {
-            scanBtn.innerText = "START CAMERA & SCAN VEST";
-            scanBtn.disabled = false;
-            
-            ws = new WebSocket(`wss://laser-tag-laser-tag-server.onrender.com`);
-            
-            ws.onmessage = (e) => {
-                const msg = JSON.parse(e.data);
-                
+        // ═══════════════════════════════════════
+        //  WebSocket Connection with Auto-Reconnect
+        // ═══════════════════════════════════════
+        function setConnStatus(text, cls) {
+            connStatus.innerText = text;
+            connStatus.className = cls;
+        }
+
+        function connectWS() {
+            if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+                return; // Already connected or connecting
+            }
+
+            intentionalClose = false;
+            setConnStatus('⏳ Connecting...', 'conn-wait');
+
+            try {
+                ws = new WebSocket(SERVER_URL);
+            } catch(e) {
+                setConnStatus('❌ Connection failed', 'conn-dead');
+                scheduleReconnect();
+                return;
+            }
+
+            ws.onopen = function() {
+                console.log("[WS] Connected to server");
+                setConnStatus('🟢 Online', 'conn-ok');
+                reconnectDelay = RECONNECT_BASE_MS; // Reset backoff
+
+                // If we already joined before (reconnecting after drop), re-join automatically
+                if (hasJoined && myMarkerId !== null) {
+                    ws.send(JSON.stringify({
+                        type: "JOIN",
+                        player_name: document.getElementById('playerName').value,
+                        marker_id: myMarkerId,
+                        team: document.getElementById('teamSelect').value
+                    }));
+                }
+            };
+
+            ws.onmessage = function(e) {
+                var msg;
+                try { msg = JSON.parse(e.data); } catch(err) { return; }
+
                 if (msg.type === "SETTINGS_UPDATE" || msg.type === "STATE_SYNC") {
                     if (msg.settings && !hasJoined) {
-                        const select = document.getElementById('teamSelect');
-                        // Keep current selection if possible
-                        const currentVal = select.value;
+                        var select = document.getElementById('teamSelect');
+                        var currentVal = select.value;
                         select.innerHTML = '<option value="SOLO">No Team (Solo)</option>';
-                        const teamNames = ["Red", "Blue", "Green", "Yellow", "Purple", "Orange", "Cyan", "Pink"];
-                        for(let i=0; i<msg.settings.max_teams && i<teamNames.length; i++) {
-                            const opt = document.createElement('option');
-                            opt.value = `TEAM_${teamNames[i].toUpperCase()}`;
-                            opt.innerText = `Team ${teamNames[i]}`;
+                        var teamNames = ["Red", "Blue", "Green", "Yellow", "Purple", "Orange", "Cyan", "Pink"];
+                        for (var i = 0; i < msg.settings.max_teams && i < teamNames.length; i++) {
+                            var opt = document.createElement('option');
+                            opt.value = 'TEAM_' + teamNames[i].toUpperCase();
+                            opt.innerText = 'Team ' + teamNames[i];
                             select.appendChild(opt);
                         }
-                        if(Array.from(select.options).some(o => o.value === currentVal)) {
+                        if (Array.from(select.options).some(function(o) { return o.value === currentVal; })) {
                             select.value = currentVal;
                         }
                     }
                 } else if (msg.type === "ERROR") {
-                    alert("SERVER ERROR: " + msg.message + "\n\nPlease pick a different vest or team.");
+                    alert("SERVER: " + msg.message);
                     hud.style.display = 'none';
                     setupScreen.style.display = 'flex';
                     hasJoined = false;
                 } else if (msg.type === "JOIN_ACK") {
-                    console.log("Successfully joined server!");
+                    console.log("[WS] Joined: " + msg.message);
                     hasJoined = true;
                 } else if (msg.type === "DAMAGE_RECEIVED") {
                     takeDamage(msg.amount, msg.is_fatal);
@@ -167,17 +228,51 @@
                     respawn();
                 }
             };
+
+            ws.onerror = function(err) {
+                console.log("[WS] Error:", err);
+            };
+
+            ws.onclose = function(evt) {
+                console.log("[WS] Connection closed (code " + evt.code + ")");
+                if (!intentionalClose) {
+                    setConnStatus('🔴 Disconnected', 'conn-dead');
+                    scheduleReconnect();
+                }
+            };
+        }
+
+        function scheduleReconnect() {
+            if (reconnectTimer) return; // Already scheduled
+            var delay = reconnectDelay;
+            console.log("[WS] Reconnecting in " + delay + "ms...");
+            setConnStatus('🔄 Reconnecting...', 'conn-wait');
+            reconnectTimer = setTimeout(function() {
+                reconnectTimer = null;
+                connectWS();
+            }, delay);
+            // Exponential backoff, capped
+            reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+        }
+
+        // ═══════════════════════════════════════
+        //  Initialization
+        // ═══════════════════════════════════════
+        window.onload = function() {
+            scanBtn.innerText = "START CAMERA & SCAN VEST";
+            scanBtn.disabled = false;
+            connectWS();
         };
 
-        // Legacy Browser Polyfill for 10-year old devices (iOS 11-, old Android Chrome)
+        // Legacy Browser Polyfill for old devices
         if (navigator.mediaDevices === undefined) {
             navigator.mediaDevices = {};
         }
         if (navigator.mediaDevices.getUserMedia === undefined) {
             navigator.mediaDevices.getUserMedia = function(constraints) {
-                const getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+                var getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
                 if (!getUserMedia) {
-                    return Promise.reject(new Error('Your browser is too old to support the camera. Please update.'));
+                    return Promise.reject(new Error('Your browser is too old to support the camera.'));
                 }
                 return new Promise(function(resolve, reject) {
                     getUserMedia.call(navigator, constraints, resolve, reject);
@@ -185,6 +280,9 @@
             }
         }
 
+        // ═══════════════════════════════════════
+        //  Camera & Vest Scanning
+        // ═══════════════════════════════════════
         scanBtn.onclick = function() {
             setupScreen.style.display = 'none';
             scanOverlay.style.display = 'flex';
@@ -195,25 +293,20 @@
             })
             .then(function(stream) {
                 video.srcObject = stream;
-                
                 if (stream.getVideoTracks().length > 0) {
                     videoTrack = stream.getVideoTracks()[0];
                 }
-                
                 video.onloadedmetadata = function() {
                     video.play();
-                    
-                    const aspect = video.videoHeight / video.videoWidth;
+                    var aspect = video.videoHeight / video.videoWidth;
                     canvas.width = 640;
                     canvas.height = 640 * aspect;
-                    
                     detector = new AR.Detector();
-                    
                     setTimeout(scanForVest, 250);
                 };
             })
             .catch(function(err) {
-                alert("Camera error: " + err.message + "\nMake sure you're using HTTPS or localhost!");
+                alert("Camera error: " + err.message + "\nMake sure you're using HTTPS!");
             });
         };
 
@@ -221,31 +314,28 @@
             if (canvas.width === 0) { setTimeout(scanForVest, 250); return; }
             
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            let markers = detector.detect(imageData);
+            var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            var markers = detector.detect(imageData);
             
             if (markers.length > 0) {
                 myMarkerId = markers[0].id;
-                
                 if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
                 
                 scanOverlay.style.display = 'none';
-                
-                joinSuccess.innerText = `REGISTERED ID: ${myMarkerId}`;
+                joinSuccess.innerText = 'REGISTERED ID: ' + myMarkerId;
                 joinSuccess.style.display = 'block';
-                setTimeout(() => { joinSuccess.style.display = 'none'; }, 2000);
+                setTimeout(function() { joinSuccess.style.display = 'none'; }, 2000);
                 
-                myIdLabel.innerText = `ID: ${myMarkerId}`;
+                myIdLabel.innerText = 'ID: ' + myMarkerId;
                 hud.style.display = 'block';
                 
-                connectWebSocket();
+                sendJoin();
                 return;
             }
-            
             setTimeout(scanForVest, 250);
         }
 
-        function connectWebSocket() {
+        function sendJoin() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
                     type: "JOIN",
@@ -254,33 +344,31 @@
                     team: document.getElementById('teamSelect').value
                 }));
             } else {
-                alert("Server not connected! Refresh the page.");
-                setupScreen.style.display = 'flex';
-                hud.style.display = 'none';
+                // Server not ready yet (Render cold start), retry in 2 seconds
+                setTimeout(sendJoin, 2000);
             }
         }
 
+        // ═══════════════════════════════════════
+        //  Combat: Fire, Reload, CV
+        // ═══════════════════════════════════════
         document.getElementById('trigger-zone').addEventListener('touchstart', fireWeapon, {passive: false});
         document.getElementById('trigger-zone').addEventListener('mousedown', fireWeapon);
 
-        let lastTap = 0;
-        document.getElementById('trigger-zone').addEventListener('touchend', (e) => {
-            const currentTime = new Date().getTime();
+        document.getElementById('trigger-zone').addEventListener('touchend', function(e) {
+            var currentTime = Date.now();
             if (currentTime - lastTap < 300) { reload(); }
             lastTap = currentTime;
         });
-
-        let lastFireTime = 0;
 
         function fireWeapon(e) {
             e.preventDefault(); 
             if (isDead || isReloading) return;
             
-            const now = Date.now();
+            var now = Date.now();
             if (now - lastFireTime < 1000) return; // 1 second cooldown
             
             if (ammo <= 0) {
-                // Auto reload if empty and trying to shoot
                 reload();
                 return;
             }
@@ -291,15 +379,14 @@
             if (navigator.vibrate) navigator.vibrate(50); 
             
             shootSound.currentTime = 0;
-            shootSound.play().catch(err => console.log("Audio error:", err));
+            shootSound.play().catch(function(err) { console.log("Audio error:", err); });
             
             animateFlashlight();
-            
             processCVFrame();
         }
         
         function animateFlashlight() {
-            const flashUI = document.getElementById('muzzle-flash');
+            var flashUI = document.getElementById('muzzle-flash');
             if (flashUI) {
                 flashUI.style.display = 'block';
                 flashUI.style.opacity = '1';
@@ -310,27 +397,13 @@
             if (!videoTrack || !videoTrack.applyConstraints) return;
             
             videoTrack.applyConstraints({ advanced: [{ torch: true }] })
-            .then(function() {
-                return new Promise(function(r) { setTimeout(r, 40); });
-            })
-            .then(function() {
-                return videoTrack.applyConstraints({ advanced: [{ torch: false }] });
-            })
-            .then(function() {
-                return new Promise(function(r) { setTimeout(r, 40); });
-            })
-            .then(function() {
-                return videoTrack.applyConstraints({ advanced: [{ torch: true }] });
-            })
-            .then(function() {
-                return new Promise(function(r) { setTimeout(r, 40); });
-            })
-            .then(function() {
-                return videoTrack.applyConstraints({ advanced: [{ torch: false }] });
-            })
-            .catch(function(err) {
-                console.log("Torch error:", err);
-            });
+            .then(function() { return new Promise(function(r) { setTimeout(r, 40); }); })
+            .then(function() { return videoTrack.applyConstraints({ advanced: [{ torch: false }] }); })
+            .then(function() { return new Promise(function(r) { setTimeout(r, 40); }); })
+            .then(function() { return videoTrack.applyConstraints({ advanced: [{ torch: true }] }); })
+            .then(function() { return new Promise(function(r) { setTimeout(r, 40); }); })
+            .then(function() { return videoTrack.applyConstraints({ advanced: [{ torch: false }] }); })
+            .catch(function(err) { console.log("Torch error:", err); });
         }
         
         function reload() {
@@ -341,24 +414,23 @@
             ammoEl.style.color = "yellow";
             
             reloadSound.currentTime = 0;
-            reloadSound.play().catch(err => console.log("Reload audio error:", err));
+            reloadSound.play().catch(function(err) { console.log("Reload audio error:", err); });
             
-            setTimeout(() => {
+            setTimeout(function() {
                 if (isDead) return;
                 ammo = MAX_AMMO;
                 isReloading = false;
                 ammoEl.style.color = "white";
                 updateHUD();
-            }, 4000); // 4 seconds reload time
+            }, 4000);
         }
 
-        // Point-in-polygon algorithm for JS-Aruco corners
         function isPointInPoly(pt, poly) {
-            let inside = false;
-            for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-                let xi = poly[i].x, yi = poly[i].y;
-                let xj = poly[j].x, yj = poly[j].y;
-                let intersect = ((yi > pt.y) != (yj > pt.y)) && (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi);
+            var inside = false;
+            for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                var xi = poly[i].x, yi = poly[i].y;
+                var xj = poly[j].x, yj = poly[j].y;
+                var intersect = ((yi > pt.y) != (yj > pt.y)) && (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi);
                 if (intersect) inside = !inside;
             }
             return inside;
@@ -368,14 +440,13 @@
             if (canvas.width === 0) return;
             
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            let markers = detector.detect(imageData);
+            var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            var markers = detector.detect(imageData);
             
-            let hitTarget = null;
+            var hitTarget = null;
             if (markers.length > 0) {
-                let centerPoint = { x: canvas.width / 2, y: canvas.height / 2 };
-                
-                for (let i = 0; i < markers.length; i++) {
+                var centerPoint = { x: canvas.width / 2, y: canvas.height / 2 };
+                for (var i = 0; i < markers.length; i++) {
                     if (isPointInPoly(centerPoint, markers[i].corners)) {
                         hitTarget = markers[i].id;
                         break;
@@ -394,19 +465,21 @@
             }
         }
 
+        // ═══════════════════════════════════════
+        //  Damage, Death, Respawn, HUD
+        // ═══════════════════════════════════════
         function takeDamage(amount, fatal) {
             hp = Math.max(0, hp - amount);
             updateHUD();
-            
             damageOverlay.style.opacity = 0.5;
-            setTimeout(() => { damageOverlay.style.opacity = 0; }, 150);
+            setTimeout(function() { damageOverlay.style.opacity = 0; }, 150);
             if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
         }
 
         function flashHitmarker() {
             crosshair.style.borderColor = "red";
             crosshair.style.color = "red";
-            setTimeout(() => {
+            setTimeout(function() {
                 crosshair.style.borderColor = "#0f0";
                 crosshair.style.color = "#0f0";
             }, 150);
@@ -428,8 +501,8 @@
         }
 
         function updateHUD() {
-            hpEl.innerText = `HP: ${hp}`;
-            ammoEl.innerText = `AMMO: ${ammo}`;
+            hpEl.innerText = 'HP: ' + hp;
+            ammoEl.innerText = 'AMMO: ' + ammo;
         }
     </script>
 </body>
