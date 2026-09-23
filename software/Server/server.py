@@ -208,6 +208,17 @@ async def client_handler(websocket):
                         p["kills"] = 0
                 await broadcast_state()
 
+            elif msg_type == "ADMIN_UPDATE_SETTINGS":
+                new_settings = data.get("settings", {})
+                if "max_players" in new_settings:
+                    game_settings["max_players"] = int(new_settings["max_players"])
+                if "max_teams" in new_settings:
+                    game_settings["max_teams"] = int(new_settings["max_teams"])
+                if "max_per_team" in new_settings:
+                    game_settings["max_per_team"] = int(new_settings["max_per_team"])
+                print(f"[ADMIN] Updated settings: {game_settings}")
+                await broadcast_state()
+
             elif msg_type == "JOIN":
                 name = data.get("player_name", "Unknown")
                 marker_id = data.get("marker_id")

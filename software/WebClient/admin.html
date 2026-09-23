@@ -7,12 +7,15 @@
     <style>
         body { font-family: Arial, sans-serif; background: #111; color: #fff; margin: 0; padding: 20px; }
         h1 { color: #0f0; text-align: center; }
-        .controls { display: flex; justify-content: center; gap: 20px; margin-bottom: 20px; }
-        button { padding: 10px 20px; font-size: 18px; font-weight: bold; cursor: pointer; background: #0f0; border: none; border-radius: 5px; }
+        .panel { background: #222; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #444; }
+        .controls { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; margin-bottom: 15px; }
+        .controls label { font-weight: bold; }
+        .controls input { width: 60px; padding: 5px; font-size: 16px; background: #333; color: white; border: 1px solid #555; text-align: center; }
+        button { padding: 10px 20px; font-size: 16px; font-weight: bold; cursor: pointer; background: #0f0; border: none; border-radius: 5px; }
         button.reset { background: #f00; color: white; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { border: 1px solid #444; padding: 10px; text-align: center; }
-        th { background: #222; color: #0f0; }
+        th { background: #333; color: #0f0; }
         .DEAD { color: red; font-weight: bold; }
         .ALIVE { color: #0f0; font-weight: bold; }
     </style>
@@ -21,7 +24,23 @@
 
     <h1>🚨 D-DAY ADMIN DASHBOARD 🚨</h1>
 
-    <div class="controls">
+    <div class="panel">
+        <h2 style="margin-top:0; color:#0f0;">Game Settings</h2>
+        <div class="controls">
+            <div>
+                <label>Max Total Players: </label>
+                <input type="number" id="maxPlayers" value="8" min="1">
+            </div>
+            <div>
+                <label>Max Teams: </label>
+                <input type="number" id="maxTeams" value="2" min="1">
+            </div>
+            <div>
+                <label>Max Players per Team: </label>
+                <input type="number" id="maxPerTeam" value="4" min="1">
+            </div>
+            <button onclick="updateSettings()">Apply Settings</button>
+        </div>
         <button class="reset" onclick="resetGame()">🔥 RESET ALL PLAYERS (NEW MATCH) 🔥</button>
     </div>
 
@@ -53,6 +72,11 @@
             const data = JSON.parse(event.data);
             if (data.type === "STATE_UPDATE") {
                 updateTable(data.players);
+                if (data.settings) {
+                    document.getElementById("maxPlayers").value = data.settings.max_players;
+                    document.getElementById("maxTeams").value = data.settings.max_teams;
+                    document.getElementById("maxPerTeam").value = data.settings.max_per_team;
+                }
             }
         };
 
@@ -62,11 +86,26 @@
             }
         }
 
+        function updateSettings() {
+            const mp = document.getElementById("maxPlayers").value;
+            const mt = document.getElementById("maxTeams").value;
+            const mpt = document.getElementById("maxPerTeam").value;
+            
+            ws.send(JSON.stringify({
+                type: "ADMIN_UPDATE_SETTINGS",
+                settings: {
+                    max_players: parseInt(mp),
+                    max_teams: parseInt(mt),
+                    max_per_team: parseInt(mpt)
+                }
+            }));
+            alert("Settings Applied!");
+        }
+
         function updateTable(players) {
             tableBody.innerHTML = "";
             let count = 0;
             
-            // Sort by kills
             const sortedPlayers = Object.values(players)
                 .filter(p => p.status !== "ADMIN")
                 .sort((a, b) => b.kills - a.kills);
