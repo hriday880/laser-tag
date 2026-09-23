@@ -14,6 +14,13 @@ STARTING_HP = 100
 WEAPON_DAMAGE = 20
 RESPAWN_TIMER = 10  # seconds
 
+game_settings = {
+    "max_players": 8,
+    "max_teams": 2,
+    "max_per_team": 4
+}
+
+
 async def broadcast_state():
     """Sends the current game state to all connected players."""
     if not players:
@@ -39,6 +46,7 @@ async def broadcast_state():
 
     state_payload = {
         "type": "STATE_SYNC",
+        "settings": game_settings,
         "players": players_state,
         "team_scores": team_scores
     }

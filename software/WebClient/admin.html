@@ -70,7 +70,7 @@
 
         ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            if (data.type === "STATE_UPDATE") {
+            if (data.type === "STATE_SYNC") {
                 updateTable(data.players);
                 if (data.settings) {
                     document.getElementById("maxPlayers").value = data.settings.max_players;
