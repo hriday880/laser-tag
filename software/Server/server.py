@@ -197,6 +197,7 @@ async def client_handler(websocket):
 
             if msg_type == "ADMIN_JOIN":
                 players[player_id] = {
+                    "socket": websocket,
                     "name": "ADMIN",
                     "team": None,
                     "hp": 0,
