@@ -141,22 +141,22 @@
             }
         }
 
-        scanBtn.onclick = async () => {
+        scanBtn.onclick = function() {
             setupScreen.style.display = 'none';
             scanOverlay.style.display = 'flex';
             
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }, 
-                    audio: false 
-                });
+            navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }, 
+                audio: false 
+            })
+            .then(function(stream) {
                 video.srcObject = stream;
                 
                 if (stream.getVideoTracks().length > 0) {
                     videoTrack = stream.getVideoTracks()[0];
                 }
                 
-                video.onloadedmetadata = () => {
+                video.onloadedmetadata = function() {
                     video.play();
                     
                     const aspect = video.videoHeight / video.videoWidth;
@@ -167,9 +167,10 @@
                     
                     setTimeout(scanForVest, 250);
                 };
-            } catch (err) {
+            })
+            .catch(function(err) {
                 alert("Camera error: " + err.message + "\nMake sure you're using HTTPS or localhost!");
-            }
+            });
         };
 
         function scanForVest() {
@@ -265,29 +266,39 @@
             processCVFrame();
         }
         
-        async function animateFlashlight() {
-            // Visual on-screen muzzle flash (Optional feedback if torch fails/is slow)
+        function animateFlashlight() {
             const flashUI = document.getElementById('muzzle-flash');
             if (flashUI) {
                 flashUI.style.display = 'block';
                 flashUI.style.opacity = '1';
-                setTimeout(() => { flashUI.style.opacity = '0'; }, 30);
-                setTimeout(() => { flashUI.style.display = 'none'; }, 100);
+                setTimeout(function() { flashUI.style.opacity = '0'; }, 30);
+                setTimeout(function() { flashUI.style.display = 'none'; }, 100);
             }
             
-            // Physical LED strobe animation
-            if (!videoTrack) return;
-            try {
-                await videoTrack.applyConstraints({ advanced: [{ torch: true }] });
-                await new Promise(r => setTimeout(r, 40));
-                await videoTrack.applyConstraints({ advanced: [{ torch: false }] });
-                await new Promise(r => setTimeout(r, 40));
-                await videoTrack.applyConstraints({ advanced: [{ torch: true }] });
-                await new Promise(r => setTimeout(r, 40));
-                await videoTrack.applyConstraints({ advanced: [{ torch: false }] });
-            } catch (err) {
+            if (!videoTrack || !videoTrack.applyConstraints) return;
+            
+            videoTrack.applyConstraints({ advanced: [{ torch: true }] })
+            .then(function() {
+                return new Promise(function(r) { setTimeout(r, 40); });
+            })
+            .then(function() {
+                return videoTrack.applyConstraints({ advanced: [{ torch: false }] });
+            })
+            .then(function() {
+                return new Promise(function(r) { setTimeout(r, 40); });
+            })
+            .then(function() {
+                return videoTrack.applyConstraints({ advanced: [{ torch: true }] });
+            })
+            .then(function() {
+                return new Promise(function(r) { setTimeout(r, 40); });
+            })
+            .then(function() {
+                return videoTrack.applyConstraints({ advanced: [{ torch: false }] });
+            })
+            .catch(function(err) {
                 console.log("Torch error:", err);
-            }
+            });
         }
         
         function reload() {
