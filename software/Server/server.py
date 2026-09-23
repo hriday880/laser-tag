@@ -185,6 +185,14 @@ async def respawn_player(player_id):
 async def client_handler(websocket):
     player_id = str(uuid.uuid4())
     print(f"[CONNECT] New connection: {player_id[:8]}...")
+    
+    try:
+        await websocket.send(json.dumps({
+            "type": "SETTINGS_UPDATE",
+            "settings": game_settings
+        }))
+    except Exception:
+        pass
 
     try:
         async for message in websocket:
