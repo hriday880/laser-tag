@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-test_bot.py - Laser Tag QA Load Testing Script
-
-Simulates 8 concurrent WebSocket clients connecting to the Laser Tag server,
-registering as Markers 0 through 7 on opposing teams (TEAM_RED and TEAM_BLUE),
-and continuously sending random HIT_REPORTs for a specified duration (default: 10s)
-to verify server stability and absence of exceptions under high load.
+# test_bot.py - Laser Tag QA Load Testing Script
+# 
+# Simulates 8 concurrent WebSocket clients connecting to the Laser Tag server,
+# registering as Markers 0 through 7 on opposing teams (TEAM_RED and TEAM_BLUE),
+# and continuously sending random HIT_REPORTs for a specified duration (default: 15s)
+# to verify server stability and absence of exceptions under high load.
 """
 
 import argparse
@@ -18,7 +18,7 @@ import websockets
 
 DEFAULT_URI = "ws://127.0.0.1:8765"
 DEFAULT_CLIENTS = 8
-DEFAULT_DURATION = 10.0  # seconds
+DEFAULT_DURATION = 15.0  # seconds
 TEAMS = ["TEAM_RED", "TEAM_BLUE"]
 
 

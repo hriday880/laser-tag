@@ -125,6 +125,22 @@
             scanBtn.disabled = false;
         };
 
+        // Legacy Browser Polyfill for 10-year old devices (iOS 11-, old Android Chrome)
+        if (navigator.mediaDevices === undefined) {
+            navigator.mediaDevices = {};
+        }
+        if (navigator.mediaDevices.getUserMedia === undefined) {
+            navigator.mediaDevices.getUserMedia = function(constraints) {
+                const getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+                if (!getUserMedia) {
+                    return Promise.reject(new Error('Your browser is too old to support the camera. Please update.'));
+                }
+                return new Promise(function(resolve, reject) {
+                    getUserMedia.call(navigator, constraints, resolve, reject);
+                });
+            }
+        }
+
         scanBtn.onclick = async () => {
             setupScreen.style.display = 'none';
             scanOverlay.style.display = 'flex';
