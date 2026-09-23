@@ -27,6 +27,7 @@
         .scan-box { width: 50vw; height: 50vw; border: 4px dashed #0f0; border-radius: 20px; }
         
         #join-success { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #0f0; color: #000; font-size: 8vw; font-weight: bold; padding: 20px; border-radius: 10px; z-index: 50; display: none; text-align: center; white-space: nowrap; }
+        #muzzle-flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 15; opacity: 0; pointer-events: none; transition: opacity 0.05s; display: none; }
 
         input, select, button { font-size: 5vw; padding: 10px; border-radius: 5px; }
         button { background: #0f0; color: #000; border: none; font-weight: bold; cursor: pointer; }
@@ -43,13 +44,14 @@
     <div id="damage-overlay"></div>
     
     <div id="setup-screen">
-        <h2>Laser Tag Setup</h2>
-        <input type="text" id="playerName" placeholder="Player Name" value="Player1">
+        <h1 style="color: #0f0;">LASER TAG</h1>
+        <input type="text" id="playerName" placeholder="Enter your name" value="Player1">
         <select id="teamSelect">
-            <option value="TEAM_RED">Red Team</option>
-            <option value="TEAM_BLUE">Blue Team</option>
+            <option value="SOLO">No Team (Solo)</option>
+            <option value="TEAM_RED">Team Red</option>
+            <option value="TEAM_BLUE">Team Blue</option>
         </select>
-        <button id="scanBtn" disabled>Loading OpenCV...</button>
+        <button id="scanBtn" disabled>Loading CV...</button>
     </div>
 
     <div id="scan-overlay">
@@ -60,6 +62,7 @@
     <div id="join-success">REGISTERED!</div>
 
     <div id="hud">
+        <div id="muzzle-flash"></div>
         <div id="crosshair"></div>
         <div id="my-id-label" class="hud-text">ID: ?</div>
         <div id="hp" class="hud-text">HP: 100</div>
@@ -218,9 +221,14 @@
             lastTap = currentTime;
         });
 
+        let lastFireTime = 0;
+
         function fireWeapon(e) {
             e.preventDefault(); 
             if (isDead || isReloading) return;
+            
+            const now = Date.now();
+            if (now - lastFireTime < 1000) return; // 1 second cooldown
             
             if (ammo <= 0) {
                 // Auto reload if empty and trying to shoot
@@ -228,6 +236,7 @@
                 return;
             }
             
+            lastFireTime = now;
             ammo--;
             updateHUD();
             if (navigator.vibrate) navigator.vibrate(50); 
@@ -235,19 +244,34 @@
             shootSound.currentTime = 0;
             shootSound.play().catch(err => console.log("Audio error:", err));
             
-            if (videoTrack) {
-                videoTrack.applyConstraints({ advanced: [{ torch: true }] })
-                    .then(() => {
-                        setTimeout(() => {
-                            videoTrack.applyConstraints({ advanced: [{ torch: false }] }).catch(()=>{});
-                        }, 100);
-                    })
-                    .catch((err) => {
-                        console.log("Torch error:", err);
-                    });
-            }
+            animateFlashlight();
             
             processCVFrame();
+        }
+        
+        async function animateFlashlight() {
+            // Visual on-screen muzzle flash (Optional feedback if torch fails/is slow)
+            const flashUI = document.getElementById('muzzle-flash');
+            if (flashUI) {
+                flashUI.style.display = 'block';
+                flashUI.style.opacity = '1';
+                setTimeout(() => { flashUI.style.opacity = '0'; }, 30);
+                setTimeout(() => { flashUI.style.display = 'none'; }, 100);
+            }
+            
+            // Physical LED strobe animation
+            if (!videoTrack) return;
+            try {
+                await videoTrack.applyConstraints({ advanced: [{ torch: true }] });
+                await new Promise(r => setTimeout(r, 40));
+                await videoTrack.applyConstraints({ advanced: [{ torch: false }] });
+                await new Promise(r => setTimeout(r, 40));
+                await videoTrack.applyConstraints({ advanced: [{ torch: true }] });
+                await new Promise(r => setTimeout(r, 40));
+                await videoTrack.applyConstraints({ advanced: [{ torch: false }] });
+            } catch (err) {
+                console.log("Torch error:", err);
+            }
         }
         
         function reload() {
