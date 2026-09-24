@@ -3,16 +3,16 @@ import json
 import os
 import websockets
 import uuid
-import time
-
-# Game State
-players = {}
-teams = {}  # Dynamic: auto-created when a player joins with a new team name
 
 # Config
 STARTING_HP = 100
 WEAPON_DAMAGE = 20
 RESPAWN_TIMER = 10  # seconds
+
+# Game State
+players = {}          # player_id -> {socket, name, team, hp, marker_id, status, kills}
+teams = {}            # team_name -> [player_ids]
+connected_clients = {}  # player_id -> websocket (ALL connections, even before JOIN)
 
 game_settings = {
     "max_players": 8,
@@ -22,11 +22,8 @@ game_settings = {
 
 
 async def broadcast_state():
-    """Sends the current game state to all connected players."""
-    if not players:
-        return
-
-    # Build per-player state (excluding socket objects which aren't serializable)
+    """Sends game state to ALL connected sockets (players + admin + pre-join)."""
+    # Build serializable player state
     players_state = {}
     for pid, p in players.items():
         players_state[pid] = {
@@ -38,66 +35,57 @@ async def broadcast_state():
             "kills": p.get("kills", 0)
         }
 
-    # Build team scores
     team_scores = {}
-    for team_name in teams:
+    for team_name, member_ids in teams.items():
         team_scores[team_name] = sum(
-            players[pid].get("kills", 0) for pid in teams[team_name] if pid in players
+            players[pid].get("kills", 0) for pid in member_ids if pid in players
         )
 
-    state_payload = {
+    payload = json.dumps({
         "type": "STATE_SYNC",
         "settings": game_settings,
         "players": players_state,
         "team_scores": team_scores
-    }
+    })
 
-    encoded = json.dumps(state_payload)
-    dead_sockets = []
-    # Snapshot the dict to avoid RuntimeError if cleanup modifies it
-    for pid, p in list(players.items()):
+    # Send to ALL connected sockets (not just players)
+    dead = []
+    for cid, sock in list(connected_clients.items()):
         try:
-            await p["socket"].send(encoded)
-        except websockets.exceptions.ConnectionClosed:
-            dead_sockets.append(pid)
+            await sock.send(payload)
         except Exception:
-            dead_sockets.append(pid)
+            dead.append(cid)
 
-    # Cleanup any dead sockets discovered during broadcast
-    for pid in dead_sockets:
-        cleanup_player(pid)
+    for cid in dead:
+        cleanup_player(cid)
 
 
 def cleanup_player(player_id):
     """Remove a player from all state tracking."""
     if player_id in players:
-        team = players[player_id]["team"]
-        if team in teams and player_id in teams[team]:
+        p = players[player_id]
+        team = p.get("team")
+        if team and team in teams and player_id in teams[team]:
             teams[team].remove(player_id)
             if not teams[team]:
-                del teams[team]  # Remove empty teams
-        name = players[player_id]["name"]
+                del teams[team]
+        print(f"[CLEANUP] {p.get('name', '?')} ({player_id[:8]}...) removed.")
         del players[player_id]
-        print(f"[CLEANUP] {name} ({player_id[:8]}...) removed.")
+    connected_clients.pop(player_id, None)
 
 
 async def handle_hit_report(shooter_id, target_marker_id):
     shooter = players.get(shooter_id)
     if not shooter:
         return
-        
-    print(f"[{shooter['name']}] Fired at Marker {target_marker_id}!")
-    
-    if shooter["status"] == "DEAD":
-        print(f"  -> Ignored: {shooter['name']} is DEAD.")
-        return  # Dead players can't shoot
 
-    # Self-shoot protection: ignore if shooter's own marker
-    if shooter["marker_id"] == target_marker_id:
-        print(f"  -> Ignored: Self-shoot protection (aiming at own marker).")
+    if shooter["status"] != "ALIVE":
         return
 
-    # Find who owns the target marker
+    if shooter["marker_id"] == target_marker_id:
+        return  # Self-shoot
+
+    # Find victim
     victim_id = None
     victim = None
     for pid, p in players.items():
@@ -106,20 +94,14 @@ async def handle_hit_report(shooter_id, target_marker_id):
             victim = p
             break
 
-    if not victim:
-        print(f"  -> Ignored: No active player is using Marker {target_marker_id}.")
+    if not victim or victim["status"] != "ALIVE":
         return
 
-    if victim["status"] == "DEAD":
-        print(f"  -> Ignored: {victim['name']} is already dead.")
+    # Friendly fire check
+    if shooter["team"] and shooter["team"] != "SOLO" and shooter["team"] == victim["team"]:
         return
 
-    # Check friendly fire (SOLO team has no friendly fire)
-    if shooter["team"] == victim["team"] and shooter["team"] != "SOLO":
-        print(f"  -> Ignored: Friendly Fire ({victim['name']} is on the same team).")
-        return
-
-    # Apply Damage
+    # Apply damage
     victim["hp"] -= WEAPON_DAMAGE
     is_fatal = victim["hp"] <= 0
 
@@ -131,28 +113,25 @@ async def handle_hit_report(shooter_id, target_marker_id):
     print(f"[HIT] {shooter['name']} -> {victim['name']}. HP: {victim['hp']}"
           + (" [KILL!]" if is_fatal else ""))
 
-    # Notify Victim
+    # Notify victim
     try:
         await victim["socket"].send(json.dumps({
             "type": "DAMAGE_RECEIVED",
             "amount": WEAPON_DAMAGE,
-            "shooter_name": shooter["name"],
             "is_fatal": is_fatal
         }))
     except Exception:
         pass
 
-    # Notify Shooter
+    # Notify shooter
     try:
         await shooter["socket"].send(json.dumps({
             "type": "HIT_CONFIRMED",
-            "target_name": victim["name"],
             "is_fatal": is_fatal
         }))
     except Exception:
         pass
 
-    # If fatal, schedule respawn
     if is_fatal:
         try:
             await victim["socket"].send(json.dumps({
@@ -163,21 +142,17 @@ async def handle_hit_report(shooter_id, target_marker_id):
             pass
         asyncio.create_task(respawn_player(victim_id))
 
-    # Broadcast updated state to everyone
     await broadcast_state()
 
 
 async def respawn_player(player_id):
-    """Respawn a dead player after the respawn timer."""
     await asyncio.sleep(RESPAWN_TIMER)
     if player_id in players and players[player_id]["status"] == "DEAD":
         players[player_id]["hp"] = STARTING_HP
         players[player_id]["status"] = "ALIVE"
         print(f"[RESPAWN] {players[player_id]['name']} is back!")
         try:
-            await players[player_id]["socket"].send(json.dumps({
-                "type": "RESPAWN"
-            }))
+            await players[player_id]["socket"].send(json.dumps({"type": "RESPAWN"}))
         except Exception:
             pass
         await broadcast_state()
@@ -185,22 +160,25 @@ async def respawn_player(player_id):
 
 async def client_handler(websocket):
     player_id = str(uuid.uuid4())
-    print(f"[CONNECT] New connection: {player_id[:8]}...")
-    
+    connected_clients[player_id] = websocket
+    print(f"[CONNECT] {player_id[:8]}...")
+
+    # Immediately send current settings so the phone can populate team dropdown
     try:
         await websocket.send(json.dumps({
             "type": "SETTINGS_UPDATE",
             "settings": game_settings
         }))
     except Exception:
-        pass
+        connected_clients.pop(player_id, None)
+        return
 
     try:
         async for message in websocket:
             try:
                 data = json.loads(message)
-            except json.JSONDecodeError:
-                continue  # Ignore malformed JSON
+            except (json.JSONDecodeError, TypeError):
+                continue
 
             msg_type = data.get("type")
 
@@ -214,11 +192,11 @@ async def client_handler(websocket):
                     "status": "ADMIN",
                     "marker_id": -1
                 }
-                print("[ADMIN] Dashboard Connected.")
+                print("[ADMIN] Dashboard connected.")
                 await broadcast_state()
-            
+
             elif msg_type == "ADMIN_RESET":
-                print("[ADMIN] Resetting game state...")
+                print("[ADMIN] Resetting game...")
                 for p in players.values():
                     if p["status"] != "ADMIN":
                         p["hp"] = STARTING_HP
@@ -227,14 +205,14 @@ async def client_handler(websocket):
                 await broadcast_state()
 
             elif msg_type == "ADMIN_UPDATE_SETTINGS":
-                new_settings = data.get("settings", {})
-                if "max_players" in new_settings:
-                    game_settings["max_players"] = int(new_settings["max_players"])
-                if "max_teams" in new_settings:
-                    game_settings["max_teams"] = int(new_settings["max_teams"])
-                if "max_per_team" in new_settings:
-                    game_settings["max_per_team"] = int(new_settings["max_per_team"])
-                print(f"[ADMIN] Updated settings: {game_settings}")
+                s = data.get("settings", {})
+                if "max_players" in s:
+                    game_settings["max_players"] = max(1, int(s["max_players"]))
+                if "max_teams" in s:
+                    game_settings["max_teams"] = max(1, int(s["max_teams"]))
+                if "max_per_team" in s:
+                    game_settings["max_per_team"] = max(1, int(s["max_per_team"]))
+                print(f"[ADMIN] Settings: {game_settings}")
                 await broadcast_state()
 
             elif msg_type == "JOIN":
@@ -242,7 +220,6 @@ async def client_handler(websocket):
                 marker_id = data.get("marker_id")
                 team = data.get("team", "TEAM_RED")
 
-                # Validate marker_id
                 if marker_id is None:
                     await websocket.send(json.dumps({
                         "type": "ERROR",
@@ -250,47 +227,80 @@ async def client_handler(websocket):
                     }))
                     continue
 
-                # Check for duplicate marker IDs
+                # If this player_id already exists (reconnection), clean old entry first
+                if player_id in players:
+                    cleanup_player(player_id)
+                    connected_clients[player_id] = websocket
+
+                # Check duplicate marker (different player using same marker)
+                dup = False
                 for pid, p in players.items():
-                    if p["marker_id"] == marker_id:
+                    if p["marker_id"] == marker_id and pid != player_id:
+                        dup = True
                         await websocket.send(json.dumps({
                             "type": "ERROR",
                             "message": f"Marker {marker_id} is already in use by {p['name']}"
                         }))
                         break
-                else:
-                    # No duplicate found, register the player
-                    players[player_id] = {
-                        "socket": websocket,
-                        "name": name,
-                        "marker_id": marker_id,
-                        "team": team,
-                        "hp": STARTING_HP,
-                        "status": "ALIVE",
-                        "kills": 0
-                    }
-                    # Auto-create team if it doesn't exist
+
+                if dup:
+                    continue
+
+                # Enforce limits
+                active = sum(1 for p in players.values() if p["status"] != "ADMIN")
+                if active >= game_settings["max_players"]:
+                    await websocket.send(json.dumps({
+                        "type": "ERROR",
+                        "message": f"Game full! Max {game_settings['max_players']} players."
+                    }))
+                    continue
+
+                if team and team != "SOLO":
+                    if team not in teams and len(teams) >= game_settings["max_teams"]:
+                        await websocket.send(json.dumps({
+                            "type": "ERROR",
+                            "message": f"Max {game_settings['max_teams']} teams reached!"
+                        }))
+                        continue
+                    if team in teams and len(teams[team]) >= game_settings["max_per_team"]:
+                        await websocket.send(json.dumps({
+                            "type": "ERROR",
+                            "message": f"{team} full! Max {game_settings['max_per_team']} per team."
+                        }))
+                        continue
+
+                # Register
+                players[player_id] = {
+                    "socket": websocket,
+                    "name": name,
+                    "marker_id": marker_id,
+                    "team": team,
+                    "hp": STARTING_HP,
+                    "status": "ALIVE",
+                    "kills": 0
+                }
+                if team and team != "SOLO":
                     if team not in teams:
                         teams[team] = []
                     teams[team].append(player_id)
 
-                    print(f"[JOIN] {name} -> {team} (Marker {marker_id})")
-                    await websocket.send(json.dumps({
-                        "type": "JOIN_ACK",
-                        "player_id": player_id,
-                        "message": f"Welcome {name}!"
-                    }))
-                    await broadcast_state()
+                print(f"[JOIN] {name} -> {team} (Marker {marker_id})")
+                await websocket.send(json.dumps({
+                    "type": "JOIN_ACK",
+                    "player_id": player_id,
+                    "message": f"Welcome {name}!"
+                }))
+                await broadcast_state()
 
             elif msg_type == "HIT_REPORT":
-                target_marker = data.get("target_marker_id")
-                if target_marker is not None:
-                    await handle_hit_report(player_id, target_marker)
+                target = data.get("target_marker_id")
+                if target is not None:
+                    await handle_hit_report(player_id, target)
 
     except websockets.exceptions.ConnectionClosed:
         pass
     except Exception as e:
-        print(f"[ERROR] Unexpected error for {player_id[:8]}: {e}")
+        print(f"[ERROR] {player_id[:8]}: {e}")
     finally:
         cleanup_player(player_id)
         await broadcast_state()
@@ -302,8 +312,14 @@ async def main():
     print("  LASER TAG SERVER")
     print(f"  Listening on ws://0.0.0.0:{port}")
     print("=" * 50)
-    async with websockets.serve(client_handler, "0.0.0.0", port):
-        await asyncio.Future()  # run forever
+    async with websockets.serve(
+        client_handler,
+        "0.0.0.0",
+        port,
+        ping_interval=20,
+        ping_timeout=20,
+    ):
+        await asyncio.Future()
 
 
 if __name__ == "__main__":

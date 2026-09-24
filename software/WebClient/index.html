@@ -3,12 +3,12 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Laser Tag Web Client</title>
+    <title>Laser Tag</title>
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: monospace; color: white; user-select: none; }
+        * { box-sizing: border-box; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: monospace; color: white; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
         #video { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; }
         #canvas { display: none; }
-        
         #hud { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; display: none; }
         .hud-text { position: absolute; font-size: 6vw; font-weight: bold; text-shadow: 2px 2px 0 #000; }
         #hp { bottom: 5%; left: 5%; color: #0f0; }
@@ -16,38 +16,30 @@
         #my-id-label { top: 5%; left: 5%; color: #fff; font-size: 4vw; opacity: 0.7; }
         #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 10vw; height: 10vw; border: 3px solid #0f0; border-radius: 50%; }
         #crosshair::after { content: '+'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 5vw; color: #0f0; }
-        
         #damage-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: red; opacity: 0; z-index: 15; pointer-events: none; transition: opacity 0.1s; }
-        #death-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 30; display: none; flex-direction: column; justify-content: center; align-items: center; }
+        #death-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 30; display: none; flex-direction: column; justify-content: center; align-items: center; }
         #death-screen h1 { color: red; font-size: 10vw; margin: 0; }
-        
         #setup-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #222; z-index: 40; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; }
         #scan-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 35; display: none; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
         #scan-overlay h2 { color: #0f0; margin-bottom: 50px; text-shadow: 2px 2px 0 #000; }
         .scan-box { width: 50vw; height: 50vw; border: 4px dashed #0f0; border-radius: 20px; }
-        
-        #join-success { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #0f0; color: #000; font-size: 8vw; font-weight: bold; padding: 20px; border-radius: 10px; z-index: 50; display: none; text-align: center; white-space: nowrap; }
-        #muzzle-flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 15; opacity: 0; pointer-events: none; transition: opacity 0.05s; display: none; }
-
-        #conn-status { position: absolute; top: 2%; right: 2%; z-index: 45; font-size: 3vw; padding: 4px 8px; border-radius: 4px; background: rgba(0,0,0,0.6); }
+        #join-success { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #0f0; color: #000; font-size: 8vw; font-weight: bold; padding: 20px; border-radius: 10px; z-index: 55; display: none; text-align: center; }
+        #muzzle-flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 15; opacity: 0; pointer-events: none; display: none; }
+        #conn-status { position: absolute; bottom: 2%; left: 50%; transform: translateX(-50%); z-index: 55; font-size: 3vw; padding: 4px 10px; border-radius: 4px; background: rgba(0,0,0,0.8); }
         .conn-ok { color: #0f0; }
         .conn-wait { color: yellow; }
         .conn-dead { color: red; }
-
         input, select, button { font-size: 5vw; padding: 10px; border-radius: 5px; }
         button { background: #0f0; color: #000; border: none; font-weight: bold; cursor: pointer; }
         button:disabled { background: #555; color: #888; }
-        
         #trigger-zone { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 25; pointer-events: auto; }
     </style>
 </head>
 <body>
-
-    <video id="video" autoplay playsinline></video>
+    <video id="video" autoplay playsinline muted></video>
     <canvas id="canvas"></canvas>
     <div id="damage-overlay"></div>
-    
-    <div id="conn-status" class="conn-wait">⏳ Connecting...</div>
+    <div id="conn-status" class="conn-wait">Connecting...</div>
 
     <div id="setup-screen">
         <h1 style="color: #0f0;">LASER TAG</h1>
@@ -64,7 +56,7 @@
         <h2>POINT CAMERA AT<br>YOUR VEST MARKER</h2>
         <div class="scan-box"></div>
     </div>
-    
+
     <div id="join-success">REGISTERED!</div>
 
     <div id="hud">
@@ -83,103 +75,78 @@
 
     <script src="cv.js"></script>
     <script src="aruco.js"></script>
-    
     <script>
-        // ─── Constants ───
+    (function() {
+        "use strict";
+
+        // ── Config ──
         var SERVER_URL = 'wss://laser-tag-laser-tag-server.onrender.com';
         var MAX_AMMO = 10;
-        var RECONNECT_BASE_MS = 1000;
-        var RECONNECT_MAX_MS = 10000;
 
-        // ─── Game State ───
-        var ammo = MAX_AMMO;
-        var hp = 100;
-        var isDead = false;
-        var isReloading = false;
+        // ── State ──
+        var ammo = MAX_AMMO, hp = 100;
+        var isDead = false, isReloading = false, hasJoined = false;
         var myMarkerId = null;
-        var hasJoined = false;
-        var lastFireTime = 0;
-        var lastTap = 0;
-        
-        // ─── WebSocket State ───
-        var ws = null;
-        var reconnectDelay = RECONNECT_BASE_MS;
-        var reconnectTimer = null;
-        var intentionalClose = false;
-        
-        // ─── JS-Aruco ───
-        var detector = null;
-        var videoTrack = null;
+        var lastFireTime = 0, lastTap = 0;
+        var ws = null, reconnectDelay = 1000, reconnectTimer = null;
+        var detector = null, videoTrack = null;
 
-        // ─── DOM refs ───
-        var video = document.getElementById('video');
-        var canvas = document.getElementById('canvas');
-        var ctx = canvas.getContext('2d', { willReadFrequently: true });
-        var scanBtn = document.getElementById('scanBtn');
-        var setupScreen = document.getElementById('setup-screen');
-        var scanOverlay = document.getElementById('scan-overlay');
-        var joinSuccess = document.getElementById('join-success');
-        var hud = document.getElementById('hud');
-        var hpEl = document.getElementById('hp');
-        var ammoEl = document.getElementById('ammo');
-        var myIdLabel = document.getElementById('my-id-label');
+        // ── DOM ──
+        var video     = document.getElementById('video');
+        var canvas    = document.getElementById('canvas');
+        var ctx       = canvas.getContext('2d', {willReadFrequently: true});
+        var scanBtn   = document.getElementById('scanBtn');
+        var setup     = document.getElementById('setup-screen');
+        var scanOvl   = document.getElementById('scan-overlay');
+        var joinMsg   = document.getElementById('join-success');
+        var hud       = document.getElementById('hud');
+        var hpEl      = document.getElementById('hp');
+        var ammoEl    = document.getElementById('ammo');
+        var idLabel   = document.getElementById('my-id-label');
         var crosshair = document.getElementById('crosshair');
-        var damageOverlay = document.getElementById('damage-overlay');
-        var connStatus = document.getElementById('conn-status');
-        
-        // ─── Audio ───
+        var dmgOvl    = document.getElementById('damage-overlay');
+        var connEl    = document.getElementById('conn-status');
+        var trigZone  = document.getElementById('trigger-zone');
+        var deathScr  = document.getElementById('death-screen');
+
+        // ── Audio ──
         var shootSound = new Audio('bullet.mp3');
         var reloadSound = new Audio('reload.mp3');
         var audioCtx = null;
         try {
             audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            var reloadSource = audioCtx.createMediaElementSource(reloadSound);
-            var gainNode = audioCtx.createGain();
-            gainNode.gain.value = 50.0; // 5000% volume
-            reloadSource.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-        } catch(e) {
-            console.log("Web Audio API not supported, using normal volume");
-        }
-        
-        // Resume AudioContext on first tap (mobile requirement)
-        document.body.addEventListener('touchstart', function() { 
-            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); 
-        }, {once: true});
-        document.body.addEventListener('mousedown', function() { 
-            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); 
-        }, {once: true});
+            var src = audioCtx.createMediaElementSource(reloadSound);
+            var gain = audioCtx.createGain();
+            gain.gain.value = 50.0;
+            src.connect(gain);
+            gain.connect(audioCtx.destination);
+        } catch(e) {}
 
-        // ═══════════════════════════════════════
-        //  WebSocket Connection with Auto-Reconnect
-        // ═══════════════════════════════════════
-        function setConnStatus(text, cls) {
-            connStatus.innerText = text;
-            connStatus.className = cls;
+        function resumeAudio() {
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        }
+        document.addEventListener('touchstart', resumeAudio, {once: true});
+        document.addEventListener('click', resumeAudio, {once: true});
+
+        // ══════════════════════════════════
+        //  WebSocket
+        // ══════════════════════════════════
+        function setConn(text, cls) {
+            connEl.textContent = text;
+            connEl.className = cls;
         }
 
         function connectWS() {
-            if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-                return; // Already connected or connecting
-            }
+            if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+            setConn('Connecting...', 'conn-wait');
 
-            intentionalClose = false;
-            setConnStatus('⏳ Connecting...', 'conn-wait');
-
-            try {
-                ws = new WebSocket(SERVER_URL);
-            } catch(e) {
-                setConnStatus('❌ Connection failed', 'conn-dead');
-                scheduleReconnect();
-                return;
-            }
+            try { ws = new WebSocket(SERVER_URL); }
+            catch(e) { setConn('Failed', 'conn-dead'); scheduleReconnect(); return; }
 
             ws.onopen = function() {
-                console.log("[WS] Connected to server");
-                setConnStatus('🟢 Online', 'conn-ok');
-                reconnectDelay = RECONNECT_BASE_MS; // Reset backoff
-
-                // If we already joined before (reconnecting after drop), re-join automatically
+                setConn('Online', 'conn-ok');
+                reconnectDelay = 1000;
+                // Auto re-join on reconnect
                 if (hasJoined && myMarkerId !== null) {
                     ws.send(JSON.stringify({
                         type: "JOIN",
@@ -191,152 +158,127 @@
             };
 
             ws.onmessage = function(e) {
-                var msg;
-                try { msg = JSON.parse(e.data); } catch(err) { return; }
+                var m;
+                try { m = JSON.parse(e.data); } catch(x) { return; }
+                var t = m.type;
 
-                if (msg.type === "SETTINGS_UPDATE" || msg.type === "STATE_SYNC") {
-                    if (msg.settings && !hasJoined) {
-                        var select = document.getElementById('teamSelect');
-                        var currentVal = select.value;
-                        select.innerHTML = '<option value="SOLO">No Team (Solo)</option>';
-                        var teamNames = ["Red", "Blue", "Green", "Yellow", "Purple", "Orange", "Cyan", "Pink"];
-                        for (var i = 0; i < msg.settings.max_teams && i < teamNames.length; i++) {
-                            var opt = document.createElement('option');
-                            opt.value = 'TEAM_' + teamNames[i].toUpperCase();
-                            opt.innerText = 'Team ' + teamNames[i];
-                            select.appendChild(opt);
+                if (t === "SETTINGS_UPDATE" || t === "STATE_SYNC") {
+                    // Update team dropdown (only before joining)
+                    if (m.settings && !hasJoined) {
+                        var sel = document.getElementById('teamSelect');
+                        var cur = sel.value;
+                        sel.innerHTML = '<option value="SOLO">No Team (Solo)</option>';
+                        var names = ["Red","Blue","Green","Yellow","Purple","Orange","Cyan","Pink"];
+                        for (var i = 0; i < m.settings.max_teams && i < names.length; i++) {
+                            var o = document.createElement('option');
+                            o.value = 'TEAM_' + names[i].toUpperCase();
+                            o.textContent = 'Team ' + names[i];
+                            sel.appendChild(o);
                         }
-                        if (Array.from(select.options).some(function(o) { return o.value === currentVal; })) {
-                            select.value = currentVal;
+                        // Restore previous selection if still valid
+                        for (var j = 0; j < sel.options.length; j++) {
+                            if (sel.options[j].value === cur) { sel.value = cur; break; }
                         }
                     }
-                } else if (msg.type === "ERROR") {
-                    alert("SERVER: " + msg.message);
-                    hud.style.display = 'none';
-                    setupScreen.style.display = 'flex';
-                    hasJoined = false;
-                } else if (msg.type === "JOIN_ACK") {
-                    console.log("[WS] Joined: " + msg.message);
+                } else if (t === "JOIN_ACK") {
                     hasJoined = true;
-                } else if (msg.type === "DAMAGE_RECEIVED") {
-                    takeDamage(msg.amount, msg.is_fatal);
-                } else if (msg.type === "HIT_CONFIRMED") {
-                    flashHitmarker();
-                } else if (msg.type === "DEATH_EVENT") {
-                    die(msg.respawn_timer_seconds);
-                } else if (msg.type === "RESPAWN") {
-                    respawn();
+                } else if (t === "ERROR") {
+                    alert(m.message);
+                    hud.style.display = 'none';
+                    setup.style.display = 'flex';
+                    hasJoined = false;
+                } else if (t === "DAMAGE_RECEIVED") {
+                    hp = Math.max(0, hp - m.amount);
+                    updateHUD();
+                    dmgOvl.style.opacity = '0.5';
+                    setTimeout(function() { dmgOvl.style.opacity = '0'; }, 150);
+                    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+                } else if (t === "HIT_CONFIRMED") {
+                    crosshair.style.borderColor = 'red';
+                    setTimeout(function() { crosshair.style.borderColor = '#0f0'; }, 150);
+                } else if (t === "DEATH_EVENT") {
+                    isDead = true; hp = 0; updateHUD();
+                    deathScr.style.display = 'flex';
+                } else if (t === "RESPAWN") {
+                    isDead = false; hp = 100; ammo = MAX_AMMO; updateHUD();
+                    deathScr.style.display = 'none';
                 }
             };
 
-            ws.onerror = function(err) {
-                console.log("[WS] Error:", err);
-            };
-
-            ws.onclose = function(evt) {
-                console.log("[WS] Connection closed (code " + evt.code + ")");
-                if (!intentionalClose) {
-                    setConnStatus('🔴 Disconnected', 'conn-dead');
-                    scheduleReconnect();
-                }
+            ws.onerror = function() {};
+            ws.onclose = function() {
+                setConn('Disconnected', 'conn-dead');
+                scheduleReconnect();
             };
         }
 
         function scheduleReconnect() {
-            if (reconnectTimer) return; // Already scheduled
-            var delay = reconnectDelay;
-            console.log("[WS] Reconnecting in " + delay + "ms...");
-            setConnStatus('🔄 Reconnecting...', 'conn-wait');
+            if (reconnectTimer) return;
+            setConn('Reconnecting...', 'conn-wait');
             reconnectTimer = setTimeout(function() {
                 reconnectTimer = null;
                 connectWS();
-            }, delay);
-            // Exponential backoff, capped
-            reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+            }, reconnectDelay);
+            reconnectDelay = Math.min(reconnectDelay * 2, 10000);
         }
 
-        // ═══════════════════════════════════════
-        //  Initialization
-        // ═══════════════════════════════════════
-        window.onload = function() {
-            scanBtn.innerText = "START CAMERA & SCAN VEST";
-            scanBtn.disabled = false;
-            connectWS();
-        };
-
-        // Legacy Browser Polyfill for old devices
-        if (navigator.mediaDevices === undefined) {
-            navigator.mediaDevices = {};
-        }
-        if (navigator.mediaDevices.getUserMedia === undefined) {
-            navigator.mediaDevices.getUserMedia = function(constraints) {
-                var getUserMedia = navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
-                if (!getUserMedia) {
-                    return Promise.reject(new Error('Your browser is too old to support the camera.'));
-                }
-                return new Promise(function(resolve, reject) {
-                    getUserMedia.call(navigator, constraints, resolve, reject);
-                });
-            }
+        // ══════════════════════════════════
+        //  Camera & Scanning
+        // ══════════════════════════════════
+        if (!navigator.mediaDevices) navigator.mediaDevices = {};
+        if (!navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia = function(c) {
+                var f = navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+                if (!f) return Promise.reject(new Error('Camera not supported'));
+                return new Promise(function(ok, fail) { f.call(navigator, c, ok, fail); });
+            };
         }
 
-        // ═══════════════════════════════════════
-        //  Camera & Vest Scanning
-        // ═══════════════════════════════════════
         scanBtn.onclick = function() {
-            setupScreen.style.display = 'none';
-            scanOverlay.style.display = 'flex';
-            
-            navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }, 
-                audio: false 
-            })
-            .then(function(stream) {
+            setup.style.display = 'none';
+            scanOvl.style.display = 'flex';
+            navigator.mediaDevices.getUserMedia({
+                video: {facingMode:'environment', width:{ideal:640}, height:{ideal:480}},
+                audio: false
+            }).then(function(stream) {
                 video.srcObject = stream;
-                if (stream.getVideoTracks().length > 0) {
-                    videoTrack = stream.getVideoTracks()[0];
-                }
+                if (stream.getVideoTracks().length > 0) videoTrack = stream.getVideoTracks()[0];
                 video.onloadedmetadata = function() {
                     video.play();
-                    var aspect = video.videoHeight / video.videoWidth;
+                    var asp = video.videoHeight / video.videoWidth;
                     canvas.width = 640;
-                    canvas.height = 640 * aspect;
+                    canvas.height = Math.round(640 * asp);
                     detector = new AR.Detector();
-                    setTimeout(scanForVest, 250);
+                    setTimeout(scanLoop, 250);
                 };
-            })
-            .catch(function(err) {
+            }).catch(function(err) {
                 alert("Camera error: " + err.message + "\nMake sure you're using HTTPS!");
+                setup.style.display = 'flex';
+                scanOvl.style.display = 'none';
             });
         };
 
-        function scanForVest() {
-            if (canvas.width === 0) { setTimeout(scanForVest, 250); return; }
-            
+        function scanLoop() {
+            if (!canvas.width) { setTimeout(scanLoop, 250); return; }
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            var markers = detector.detect(imageData);
-            
+            var markers = detector.detect(ctx.getImageData(0, 0, canvas.width, canvas.height));
             if (markers.length > 0) {
                 myMarkerId = markers[0].id;
                 if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-                
-                scanOverlay.style.display = 'none';
-                joinSuccess.innerText = 'REGISTERED ID: ' + myMarkerId;
-                joinSuccess.style.display = 'block';
-                setTimeout(function() { joinSuccess.style.display = 'none'; }, 2000);
-                
-                myIdLabel.innerText = 'ID: ' + myMarkerId;
+                scanOvl.style.display = 'none';
+                joinMsg.textContent = 'REGISTERED ID: ' + myMarkerId;
+                joinMsg.style.display = 'block';
+                setTimeout(function() { joinMsg.style.display = 'none'; }, 2000);
+                idLabel.textContent = 'ID: ' + myMarkerId;
                 hud.style.display = 'block';
-                
                 sendJoin();
                 return;
             }
-            setTimeout(scanForVest, 250);
+            setTimeout(scanLoop, 250);
         }
 
         function sendJoin() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
+            if (ws && ws.readyState === 1) {
                 ws.send(JSON.stringify({
                     type: "JOIN",
                     player_name: document.getElementById('playerName').value,
@@ -344,78 +286,76 @@
                     team: document.getElementById('teamSelect').value
                 }));
             } else {
-                // Server not ready yet (Render cold start), retry in 2 seconds
-                setTimeout(sendJoin, 2000);
+                setTimeout(sendJoin, 1000);
             }
         }
 
-        // ═══════════════════════════════════════
-        //  Combat: Fire, Reload, CV
-        // ═══════════════════════════════════════
-        document.getElementById('trigger-zone').addEventListener('touchstart', fireWeapon, {passive: false});
-        document.getElementById('trigger-zone').addEventListener('mousedown', fireWeapon);
-
-        document.getElementById('trigger-zone').addEventListener('touchend', function(e) {
-            var currentTime = Date.now();
-            if (currentTime - lastTap < 300) { reload(); }
-            lastTap = currentTime;
-        });
-
+        // ══════════════════════════════════
+        //  Combat
+        // ══════════════════════════════════
         function fireWeapon(e) {
-            e.preventDefault(); 
+            e.preventDefault();
             if (isDead || isReloading) return;
-            
             var now = Date.now();
-            if (now - lastFireTime < 1000) return; // 1 second cooldown
-            
-            if (ammo <= 0) {
-                reload();
-                return;
-            }
-            
+            if (now - lastFireTime < 1000) return;
+            if (ammo <= 0) { reload(); return; }
+
             lastFireTime = now;
             ammo--;
             updateHUD();
-            if (navigator.vibrate) navigator.vibrate(50); 
-            
+            if (navigator.vibrate) navigator.vibrate(50);
+
             shootSound.currentTime = 0;
-            shootSound.play().catch(function(err) { console.log("Audio error:", err); });
-            
-            animateFlashlight();
-            processCVFrame();
-        }
-        
-        function animateFlashlight() {
-            var flashUI = document.getElementById('muzzle-flash');
-            if (flashUI) {
-                flashUI.style.display = 'block';
-                flashUI.style.opacity = '1';
-                setTimeout(function() { flashUI.style.opacity = '0'; }, 30);
-                setTimeout(function() { flashUI.style.display = 'none'; }, 100);
+            shootSound.play().catch(function(){});
+
+            // Muzzle flash (screen)
+            var fl = document.getElementById('muzzle-flash');
+            if (fl) {
+                fl.style.display = 'block'; fl.style.opacity = '1';
+                setTimeout(function(){ fl.style.opacity = '0'; }, 30);
+                setTimeout(function(){ fl.style.display = 'none'; }, 100);
             }
-            
-            if (!videoTrack || !videoTrack.applyConstraints) return;
-            
-            videoTrack.applyConstraints({ advanced: [{ torch: true }] })
-            .then(function() { return new Promise(function(r) { setTimeout(r, 40); }); })
-            .then(function() { return videoTrack.applyConstraints({ advanced: [{ torch: false }] }); })
-            .then(function() { return new Promise(function(r) { setTimeout(r, 40); }); })
-            .then(function() { return videoTrack.applyConstraints({ advanced: [{ torch: true }] }); })
-            .then(function() { return new Promise(function(r) { setTimeout(r, 40); }); })
-            .then(function() { return videoTrack.applyConstraints({ advanced: [{ torch: false }] }); })
-            .catch(function(err) { console.log("Torch error:", err); });
+
+            // Torch strobe
+            if (videoTrack && videoTrack.applyConstraints) {
+                videoTrack.applyConstraints({advanced:[{torch:true}]})
+                .then(function(){ return new Promise(function(r){setTimeout(r,40);}); })
+                .then(function(){ return videoTrack.applyConstraints({advanced:[{torch:false}]}); })
+                .then(function(){ return new Promise(function(r){setTimeout(r,40);}); })
+                .then(function(){ return videoTrack.applyConstraints({advanced:[{torch:true}]}); })
+                .then(function(){ return new Promise(function(r){setTimeout(r,40);}); })
+                .then(function(){ return videoTrack.applyConstraints({advanced:[{torch:false}]}); })
+                .catch(function(){});
+            }
+
+            // CV scan for hit
+            if (canvas.width && detector) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                var markers = detector.detect(ctx.getImageData(0, 0, canvas.width, canvas.height));
+                if (markers.length > 0) {
+                    var cx = canvas.width / 2, cy = canvas.height / 2;
+                    for (var i = 0; i < markers.length; i++) {
+                        if (pointInPoly(cx, cy, markers[i].corners)) {
+                            if (ws && ws.readyState === 1) {
+                                ws.send(JSON.stringify({
+                                    type: "HIT_REPORT",
+                                    target_marker_id: markers[i].id
+                                }));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
         }
-        
+
         function reload() {
             if (isDead || isReloading || ammo === MAX_AMMO) return;
-            
             isReloading = true;
-            ammoEl.innerText = "RELOADING...";
+            ammoEl.textContent = "RELOADING...";
             ammoEl.style.color = "yellow";
-            
             reloadSound.currentTime = 0;
-            reloadSound.play().catch(function(err) { console.log("Reload audio error:", err); });
-            
+            reloadSound.play().catch(function(){});
             setTimeout(function() {
                 if (isDead) return;
                 ammo = MAX_AMMO;
@@ -425,85 +365,40 @@
             }, 4000);
         }
 
-        function isPointInPoly(pt, poly) {
+        function pointInPoly(px, py, poly) {
             var inside = false;
             for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-                var xi = poly[i].x, yi = poly[i].y;
-                var xj = poly[j].x, yj = poly[j].y;
-                var intersect = ((yi > pt.y) != (yj > pt.y)) && (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi);
-                if (intersect) inside = !inside;
+                var xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+                if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi))
+                    inside = !inside;
             }
             return inside;
         }
 
-        function processCVFrame() {
-            if (canvas.width === 0) return;
-            
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            var markers = detector.detect(imageData);
-            
-            var hitTarget = null;
-            if (markers.length > 0) {
-                var centerPoint = { x: canvas.width / 2, y: canvas.height / 2 };
-                for (var i = 0; i < markers.length; i++) {
-                    if (isPointInPoly(centerPoint, markers[i].corners)) {
-                        hitTarget = markers[i].id;
-                        break;
-                    }
-                }
-            }
-            
-            if (hitTarget !== null && hitTarget >= 0) {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({
-                        type: "HIT_REPORT",
-                        target_marker_id: hitTarget,
-                        timestamp: Date.now()
-                    }));
-                }
-            }
-        }
-
-        // ═══════════════════════════════════════
-        //  Damage, Death, Respawn, HUD
-        // ═══════════════════════════════════════
-        function takeDamage(amount, fatal) {
-            hp = Math.max(0, hp - amount);
-            updateHUD();
-            damageOverlay.style.opacity = 0.5;
-            setTimeout(function() { damageOverlay.style.opacity = 0; }, 150);
-            if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-        }
-
-        function flashHitmarker() {
-            crosshair.style.borderColor = "red";
-            crosshair.style.color = "red";
-            setTimeout(function() {
-                crosshair.style.borderColor = "#0f0";
-                crosshair.style.color = "#0f0";
-            }, 150);
-        }
-
-        function die(respawnTime) {
-            isDead = true;
-            hp = 0;
-            updateHUD();
-            document.getElementById('death-screen').style.display = 'flex';
-        }
-
-        function respawn() {
-            isDead = false;
-            hp = 100;
-            ammo = MAX_AMMO;
-            updateHUD();
-            document.getElementById('death-screen').style.display = 'none';
-        }
-
         function updateHUD() {
-            hpEl.innerText = 'HP: ' + hp;
-            ammoEl.innerText = 'AMMO: ' + ammo;
+            hpEl.textContent = 'HP: ' + hp;
+            if (!isReloading) ammoEl.textContent = 'AMMO: ' + ammo;
         }
+
+        // ══════════════════════════════════
+        //  Init
+        // ══════════════════════════════════
+        window.onload = function() {
+            scanBtn.textContent = "START CAMERA & SCAN VEST";
+            scanBtn.disabled = false;
+
+            // Bind fire/reload to trigger zone
+            trigZone.addEventListener('touchstart', fireWeapon, {passive: false});
+            trigZone.addEventListener('mousedown', fireWeapon);
+            trigZone.addEventListener('touchend', function() {
+                var now = Date.now();
+                if (now - lastTap < 300) reload();
+                lastTap = now;
+            });
+
+            connectWS();
+        };
+    })();
     </script>
 </body>
 </html>
